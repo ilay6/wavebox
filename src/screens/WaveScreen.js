@@ -192,7 +192,8 @@ export default function WaveScreen() {
     if (next < tracks.length) { setCurrentIdx(next); playTrack(tracks[next], tracks); }
   }
 
-  const track = tracks[currentIdx];
+  // Sync with actual playing track
+  const track = currentTrack || tracks[currentIdx];
   const panelY = panelAnim.interpolate({ inputRange: [0, 1], outputRange: [80, 0] });
 
   return (

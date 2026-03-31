@@ -1,37 +1,34 @@
 // WaveBox music service — uses yt-dlp server
-// Auto-detect: if running locally use localhost, otherwise use Render
 const isLocal = typeof window !== 'undefined' &&
   (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
 const SERVER = process.env.EXPO_PUBLIC_API_URL ||
   (isLocal ? 'http://localhost:8888' : 'https://wavebox-w3ft.onrender.com');
 
-// ─── Timeout helper (AbortSignal.timeout not universally supported) ───────────
-function fetchWithTimeout(url, timeoutMs = 30000) {
+// ─── Timeout helper ───────────────────────────────────────────────────────────
+function fetchWithTimeout(url, timeoutMs = 55000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
-  return fetch(url, { signal: controller.signal })
-    .finally(() => clearTimeout(timer));
+  return fetch(url, { signal: controller.signal }).finally(() => clearTimeout(timer));
 }
 
-// ─── Simple in-memory cache ───────────────────────────────────────────────────
+// ─── Cache ────────────────────────────────────────────────────────────────────
 const cache = new Map();
-const CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+const CACHE_TTL = 15 * 60 * 1000;
 
 async function cachedFetch(key, fn) {
   const now = Date.now();
   const hit = cache.get(key);
   if (hit && now - hit.ts < CACHE_TTL) return hit.data;
   const data = await fn();
-  if (data && data.length > 0) cache.set(key, { data, ts: now });
-  return data;
+  if (data?.length > 0) cache.set(key, { data, ts: now });
+  return data || [];
 }
 
-// ─── Core search ─────────────────────────────────────────────────────────────
-export async function searchTracks(query, limit = 20) {
+// ─── Core search (single artist/query) ───────────────────────────────────────
+export async function searchTracks(query, limit = 5) {
   try {
     const res = await fetchWithTimeout(
-      `${SERVER}/search?q=${encodeURIComponent(query)}&limit=${limit}`,
-      55000 // Render cold start can take up to 50s
+      `${SERVER}/search?q=${encodeURIComponent(query)}&limit=${limit}`
     );
     if (!res.ok) throw new Error('server error');
     const data = await res.json();
@@ -42,56 +39,78 @@ export async function searchTracks(query, limit = 20) {
   }
 }
 
-// ─── Home sections — fixed diverse queries ───────────────────────────────────
+// ─── Search multiple artists in parallel, mix results ────────────────────────
+async function searchMultiple(artists, limitEach = 3) {
+  const results = await Promise.all(artists.map(a => searchTracks(a, limitEach)));
+  // Interleave results: 1 from each artist, then 2nd from each, etc.
+  const mixed = [];
+  const max = Math.max(...results.map(r => r.length));
+  for (let i = 0; i < max; i++) {
+    for (const arr of results) {
+      if (arr[i]) mixed.push(arr[i]);
+    }
+  }
+  // Deduplicate by id
+  const seen = new Set();
+  return mixed.filter(t => { if (seen.has(t.id)) return false; seen.add(t.id); return true; });
+}
+
+// ─── Home sections ────────────────────────────────────────────────────────────
+
+// US Hip-Hop / Rap trending
 export async function getTrending(limit = 15) {
   return cachedFetch('trending', () =>
-    searchTracks('Drake Travis Scott Future Don Toliver', limit)
+    searchMultiple(['Drake', 'Travis Scott', 'Future', 'Don Toliver', 'Lil Baby'], 3)
   );
 }
 
+// New releases — different artists than trending
 export async function getNewReleases(limit = 10) {
   return cachedFetch('new_releases', () =>
-    searchTracks('The Weeknd Post Malone Playboi Carti 2024', limit)
+    searchMultiple(['The Weeknd', 'Post Malone', 'Playboi Carti', 'Nav', 'Gunna'], 2)
   );
 }
 
+// Russian hits
 export async function getRussianTracks(limit = 10) {
   return cachedFetch('russian', () =>
-    searchTracks('Моргенштерн Скриптонит FACE Miyagi', limit)
+    searchMultiple(['Моргенштерн', 'Скриптонит', 'FACE', 'Miyagi', 'Макс Корж'], 2)
   );
 }
 
+// Chill / lofi
 export async function getChillTracks(limit = 10) {
   return cachedFetch('chill', () =>
-    searchTracks('lofi hip hop chill beats study', limit)
+    searchMultiple(['lofi hip hop', 'chillwave beats', 'ambient study', 'jazz lofi'], 3)
   );
 }
 
+// Recommended — based on liked or default diverse mix
 export async function getRecommended(likedTracks = []) {
   if (likedTracks.length > 0) {
     const artists = [...new Set(likedTracks.map(t => t.user?.username).filter(Boolean))];
-    const q = artists.slice(0, 3).join(' ');
-    return searchTracks(q, 20);
+    return searchMultiple(artists.slice(0, 5), 4);
   }
   return cachedFetch('recommended', () =>
-    searchTracks('Kendrick Lamar Metro Boomin Nav', 20)
+    searchMultiple(['Kendrick Lamar', 'Metro Boomin', 'Tyler the Creator', 'J. Cole', 'SZA'], 3)
   );
 }
 
-const GENRE_QUERIES = {
-  'Lo-Fi': 'lofi hip hop chill beats study',
-  'Synthwave': 'synthwave retrowave outrun 80s',
-  'Ambient': 'ambient atmospheric dark drone',
-  'Hip-Hop': 'Drake Travis Scott Kendrick Lamar',
-  'Indie': 'indie alternative bedroom pop',
-  'Techno': 'techno underground dark club',
-  'Jazz': 'jazz neo soul smooth cafe',
+// Genre
+const GENRE_ARTISTS = {
+  'Lo-Fi':     ['lofi hip hop', 'lofi chill beats', 'study lofi', 'calm lofi'],
+  'Synthwave': ['synthwave', 'retrowave', 'outrun synthwave', 'Kavinsky'],
+  'Ambient':   ['ambient', 'dark ambient', 'atmospheric music', 'drone ambient'],
+  'Hip-Hop':   ['Drake', 'Kendrick Lamar', 'J. Cole', 'Travis Scott'],
+  'Indie':     ['indie pop', 'bedroom pop', 'indie folk', 'indie rock'],
+  'Techno':    ['techno', 'dark techno', 'underground techno', 'minimal techno'],
+  'Jazz':      ['jazz', 'neo soul', 'smooth jazz', 'jazz piano'],
 };
 
 export async function getTopTracks(genre = '', limit = 15) {
-  if (genre && GENRE_QUERIES[genre]) {
+  if (genre && GENRE_ARTISTS[genre]) {
     return cachedFetch(`genre_${genre}`, () =>
-      searchTracks(GENRE_QUERIES[genre], limit)
+      searchMultiple(GENRE_ARTISTS[genre], 4)
     );
   }
   return getTrending(limit);
