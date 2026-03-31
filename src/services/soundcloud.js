@@ -11,9 +11,9 @@ function fetchWithTimeout(url, timeoutMs = 55000) {
   return fetch(url, { signal: controller.signal }).finally(() => clearTimeout(timer));
 }
 
-// ─── Cache ────────────────────────────────────────────────────────────────────
+// ─── Cache (session only — cleared on reload for fresh tracks) ───────────────
 const cache = new Map();
-const CACHE_TTL = 15 * 60 * 1000;
+const CACHE_TTL = 5 * 60 * 1000; // 5 min within session only
 
 async function cachedFetch(key, fn) {
   const now = Date.now();
@@ -23,6 +23,9 @@ async function cachedFetch(key, fn) {
   if (data?.length > 0) cache.set(key, { data, ts: now });
   return data || [];
 }
+
+// Pick a random item from array
+function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
 
 // ─── Core search (single artist/query) ───────────────────────────────────────
 export async function searchTracks(query, limit = 5) {
@@ -57,43 +60,66 @@ async function searchMultiple(artists, limitEach = 3) {
 
 // ─── Home sections ────────────────────────────────────────────────────────────
 
-// US Hip-Hop / Rap trending
+// Pools of artists — random subset each session for variety
+const TRENDING_POOLS = [
+  ['Drake', 'Travis Scott', 'Future', 'Don Toliver'],
+  ['Lil Baby', 'Gunna', 'Young Thug', 'Lil Uzi Vert'],
+  ['Drake', 'Kendrick Lamar', 'Future', 'Metro Boomin'],
+  ['Travis Scott', 'Playboi Carti', 'Don Toliver', 'Nav'],
+];
+
+const NEW_POOLS = [
+  ['The Weeknd', 'Post Malone', 'Playboi Carti'],
+  ['SZA', 'Frank Ocean', 'Daniel Caesar'],
+  ['21 Savage', 'Offset', 'Quavo'],
+  ['The Weeknd', 'Post Malone', 'Jack Harlow'],
+];
+
+const RU_POOLS = [
+  ['Моргенштерн', 'Скриптонит', 'Miyagi'],
+  ['FACE', 'Макс Корж', 'Элджей'],
+  ['Скриптонит', 'Yanix', 'Oxxxymiron'],
+  ['Моргенштерн', 'FACE', 'Boulevard Depo'],
+];
+
+const CHILL_POOLS = [
+  ['lofi hip hop', 'chillwave study', 'jazz cafe'],
+  ['ambient beats', 'lo fi chill', 'peaceful piano'],
+  ['lofi girl', 'study beats', 'chill hop'],
+  ['synthwave chill', 'dream pop', 'bedroom pop'],
+];
+
 export async function getTrending(limit = 15) {
-  return cachedFetch('trending', () =>
-    searchMultiple(['Drake', 'Travis Scott', 'Future', 'Don Toliver'], 3)
-  );
+  const pool = pick(TRENDING_POOLS);
+  return cachedFetch(`trending_${pool[0]}`, () => searchMultiple(pool, 3));
 }
 
-// New releases — different artists than trending
 export async function getNewReleases(limit = 10) {
-  return cachedFetch('new_releases', () =>
-    searchMultiple(['The Weeknd', 'Post Malone', 'Playboi Carti'], 3)
-  );
+  const pool = pick(NEW_POOLS);
+  return cachedFetch(`new_${pool[0]}`, () => searchMultiple(pool, 3));
 }
 
-// Russian hits
 export async function getRussianTracks(limit = 10) {
-  return cachedFetch('russian', () =>
-    searchMultiple(['Моргенштерн', 'Скриптонит', 'Miyagi'], 3)
-  );
+  const pool = pick(RU_POOLS);
+  return cachedFetch(`ru_${pool[0]}`, () => searchMultiple(pool, 3));
 }
 
-// Chill / lofi
 export async function getChillTracks(limit = 10) {
-  return cachedFetch('chill', () =>
-    searchMultiple(['lofi hip hop', 'chillwave study', 'jazz cafe'], 3)
-  );
+  const pool = pick(CHILL_POOLS);
+  return cachedFetch(`chill_${pool[0]}`, () => searchMultiple(pool, 3));
 }
 
-// Recommended — based on liked or default diverse mix
 export async function getRecommended(likedTracks = []) {
   if (likedTracks.length > 0) {
     const artists = [...new Set(likedTracks.map(t => t.user?.username).filter(Boolean))];
-    return searchMultiple(artists.slice(0, 5), 4);
+    return searchMultiple(artists.slice(0, 4), 4);
   }
-  return cachedFetch('recommended', () =>
-    searchMultiple(['Kendrick Lamar', 'Metro Boomin', 'Tyler the Creator', 'J. Cole', 'SZA'], 3)
-  );
+  const fallback = pick([
+    ['Kendrick Lamar', 'Tyler the Creator', 'J. Cole'],
+    ['SZA', 'Frank Ocean', 'H.E.R.'],
+    ['Metro Boomin', 'Pharrell', 'Kanye West'],
+  ]);
+  return cachedFetch(`rec_${fallback[0]}`, () => searchMultiple(fallback, 4));
 }
 
 // Genre

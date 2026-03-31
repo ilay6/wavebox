@@ -91,10 +91,11 @@ async def search(q: str, limit: int = 20):
 
 @app.get("/stream")
 async def stream(url: str):
-    """Get direct audio stream URL for a track"""
+    """Get direct (non-HLS) audio stream URL for a track"""
+    # Prefer direct HTTP MP3/M4A — browsers can't play HLS (.m3u8) natively
     code, stdout, stderr = await run_ytdlp(
         url,
-        "--format", "bestaudio/best",
+        "--format", "http_mp3_128/http_aac_128/bestaudio[protocol!=m3u8_native][protocol!=m3u8][protocol!=hls]/bestaudio/best",
         "--get-url",
         "--no-warnings",
         "--quiet",
@@ -104,6 +105,9 @@ async def stream(url: str):
         raise HTTPException(status_code=404, detail="Stream not found")
 
     stream_url = stdout.strip().split("\n")[0]
+    # Double-check: reject HLS playlists
+    if ".m3u8" in stream_url:
+        raise HTTPException(status_code=404, detail="Only HLS available, not supported")
     return {"stream_url": stream_url}
 
 

@@ -191,7 +191,12 @@ export function PlayerProvider({ children }) {
       if (Platform.OS === 'web') {
         engine.onStatus = handleStatus;
         await engine.load(streamUrl);
-        await engine.play();
+        try {
+          await engine.play();
+        } catch (playErr) {
+          // Autoplay might be blocked by browser — just show play button, don't skip
+          console.log('play() blocked (autoplay policy):', playErr.message);
+        }
       } else {
         await engine.load(streamUrl, handleStatus);
       }
@@ -201,12 +206,8 @@ export function PlayerProvider({ children }) {
     } catch (e) {
       console.log('playTrack error:', e);
       setLoading(false);
-      setError('Playback failed');
-      // Auto-skip
-      const idx = q.findIndex(t => t.id === track.id);
-      if (idx < q.length - 1) {
-        setTimeout(() => playTrack(q[idx + 1], q), 500);
-      }
+      setError('Track unavailable');
+      // Only auto-skip if stream truly failed (not just play() rejection)
     }
   }, []);
 
