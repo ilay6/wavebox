@@ -1,12 +1,16 @@
-import { View, Text, TouchableOpacity, StyleSheet, Dimensions, StatusBar, Animated, Easing, Image, Platform } from 'react-native';
+import {
+  View, Text, TouchableOpacity, StyleSheet, Dimensions,
+  StatusBar, Animated, Easing, Image, Platform, ScrollView
+} from 'react-native';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { Ionicons } from '@expo/vector-icons';
-import { BlurView } from 'expo-blur';
 import { usePlayer } from '../store/player';
 import { formatDuration } from '../services/soundcloud';
 
-const { width, height } = Dimensions.get('window');
+const { width } = Dimensions.get('window');
+const ART = width - 64;
 
+// ─── Blurred artwork background ───────────────────────────────────────────────
 function ArtworkBlurBg({ uri }) {
   if (!uri) return <View style={[StyleSheet.absoluteFill, { backgroundColor: '#111' }]} />;
   return (
@@ -17,8 +21,9 @@ function ArtworkBlurBg({ uri }) {
   );
 }
 
+// ─── Animated waveform ────────────────────────────────────────────────────────
 function WaveformViz({ isPlaying }) {
-  const COUNT = 32;
+  const COUNT = 28;
   const bars = useRef(Array.from({ length: COUNT }, () => new Animated.Value(0.1))).current;
   const animRefs = useRef([]);
 
@@ -39,7 +44,7 @@ function WaveformViz({ isPlaying }) {
         ]).start(({ finished }) => { if (finished && running) animate(); });
         animRefs.current[i] = { stop: () => { running = false; } };
       };
-      setTimeout(animate, i * 30);
+      setTimeout(animate, i * 25);
     });
     return () => animRefs.current.forEach(a => a?.stop());
   }, [isPlaying]);
@@ -48,24 +53,118 @@ function WaveformViz({ isPlaying }) {
     <View style={styles.waveform}>
       {bars.map((bar, i) => (
         <Animated.View key={i} style={[styles.waveBar, {
-          height: bar.interpolate({ inputRange: [0, 1], outputRange: [2, 24] }),
-          opacity: bar.interpolate({ inputRange: [0, 1], outputRange: [0.2, 0.75] }),
+          height: bar.interpolate({ inputRange: [0, 1], outputRange: [2, 22] }),
+          opacity: bar.interpolate({ inputRange: [0, 1], outputRange: [0.2, 0.7] }),
         }]} />
       ))}
     </View>
   );
 }
 
+// ─── 5-Band Equalizer Panel ───────────────────────────────────────────────────
+const EQ_BANDS = ['Bass', 'Low', 'Mid', 'High', 'Air'];
+const EQ_PRESETS = {
+  'Flat':       [0,  0,  0,  0,  0],
+  'Bass+':      [8,  4,  0, -2, -1],
+  'Treble+':    [-2, -1,  0,  4,  7],
+  'Vocal':      [-2,  2,  4,  2,  1],
+  'Pop':        [-1,  2,  4,  2, -1],
+  'Hip-Hop':    [6,   3,  0,  1,  2],
+};
+
+function EQSlider({ label, gain, onChange }) {
+  if (Platform.OS === 'web') {
+    return (
+      <View style={eqStyles.sliderWrap}>
+        <Text style={eqStyles.gainText}>{gain > 0 ? `+${gain}` : `${gain}`}</Text>
+        <input
+          type="range" min="-12" max="12" step="1" value={gain}
+          style={{
+            writingMode: 'vertical-lr',
+            direction: 'rtl',
+            height: 90,
+            width: 28,
+            cursor: 'pointer',
+            accentColor: '#fff',
+          }}
+          onChange={e => onChange(Number(e.target.value))}
+        />
+        <Text style={eqStyles.bandLabel}>{label}</Text>
+      </View>
+    );
+  }
+  // Native fallback: simple tap buttons
+  return (
+    <View style={eqStyles.sliderWrap}>
+      <Text style={eqStyles.gainText}>{gain > 0 ? `+${gain}` : `${gain}`}</Text>
+      <View style={{ gap: 4 }}>
+        <TouchableOpacity onPress={() => onChange(Math.min(12, gain + 1))} style={eqStyles.nativeBtn}>
+          <Ionicons name="chevron-up" size={14} color="rgba(255,255,255,0.6)" />
+        </TouchableOpacity>
+        <View style={[eqStyles.nativeBar, { height: Math.max(2, ((gain + 12) / 24) * 60) }]} />
+        <TouchableOpacity onPress={() => onChange(Math.max(-12, gain - 1))} style={eqStyles.nativeBtn}>
+          <Ionicons name="chevron-down" size={14} color="rgba(255,255,255,0.6)" />
+        </TouchableOpacity>
+      </View>
+      <Text style={eqStyles.bandLabel}>{label}</Text>
+    </View>
+  );
+}
+
+function EQPanel({ gains, onChangeBand, onChangePreset }) {
+  const [activePreset, setActivePreset] = useState('Flat');
+
+  function applyPreset(name) {
+    setActivePreset(name);
+    onChangePreset(EQ_PRESETS[name]);
+  }
+
+  function handleBand(i, g) {
+    setActivePreset('Custom');
+    onChangeBand(i, g);
+  }
+
+  return (
+    <View style={eqStyles.panel}>
+      <Text style={eqStyles.title}>Equalizer</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false}
+        contentContainerStyle={eqStyles.presets}>
+        {Object.keys(EQ_PRESETS).map(name => (
+          <TouchableOpacity
+            key={name}
+            style={[eqStyles.chip, activePreset === name && eqStyles.chipActive]}
+            onPress={() => applyPreset(name)}
+          >
+            <Text style={[eqStyles.chipText, activePreset === name && eqStyles.chipTextActive]}>{name}</Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+      <View style={eqStyles.sliders}>
+        {EQ_BANDS.map((label, i) => (
+          <EQSlider key={label} label={label} gain={gains[i]} onChange={g => handleBand(i, g)} />
+        ))}
+      </View>
+    </View>
+  );
+}
+
+// ─── Main Player Screen ───────────────────────────────────────────────────────
 export default function PlayerScreen({ onClose }) {
-  const { currentTrack, isPlaying, togglePlay, playNext, playPrev, toggleLike, liked, progress, duration, seekTo, loading } = usePlayer();
+  const {
+    currentTrack, isPlaying, togglePlay, playNext, playPrev,
+    toggleLike, liked, progress, duration, seekTo, loading,
+    eqGains, setEqBand, setEqPreset,
+  } = usePlayer();
+
   const [shuffle, setShuffle] = useState(false);
   const [repeat, setRepeat] = useState(false);
+  const [showEQ, setShowEQ] = useState(false);
   const artScale = useRef(new Animated.Value(0.94)).current;
   const fadeIn = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     Animated.parallel([
-      Animated.timing(fadeIn, { toValue: 1, duration: 350, easing: Easing.out(Easing.ease), useNativeDriver: true }),
+      Animated.timing(fadeIn, { toValue: 1, duration: 300, easing: Easing.out(Easing.ease), useNativeDriver: true }),
       Animated.spring(artScale, { toValue: 1, tension: 55, friction: 11, useNativeDriver: true }),
     ]).start();
   }, [currentTrack?.id]);
@@ -94,7 +193,11 @@ export default function PlayerScreen({ onClose }) {
       <StatusBar barStyle="light-content" />
       <ArtworkBlurBg uri={artwork} />
 
-      <Animated.View style={[styles.content, { opacity: fadeIn }]}>
+      <Animated.ScrollView
+        style={[styles.content, { opacity: fadeIn }]}
+        showsVerticalScrollIndicator={false}
+        bounces={false}
+      >
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity onPress={onClose} hitSlop={{ top: 16, bottom: 16, left: 16, right: 16 }}>
@@ -118,7 +221,7 @@ export default function PlayerScreen({ onClose }) {
             )}
             {loading && (
               <View style={styles.artworkLoadingOverlay}>
-                <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13 }}>Loading...</Text>
+                <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 13 }}>Loading...</Text>
               </View>
             )}
           </Animated.View>
@@ -174,22 +277,34 @@ export default function PlayerScreen({ onClose }) {
           </TouchableOpacity>
         </View>
 
-        {/* Waveform + extras */}
+        {/* Extras: waveform + EQ toggle */}
         <View style={styles.extras}>
           <TouchableOpacity style={styles.extraBtn}>
             <Ionicons name="list-outline" size={20} color="rgba(255,255,255,0.4)" />
           </TouchableOpacity>
           <WaveformViz isPlaying={isPlaying} />
-          <TouchableOpacity style={styles.extraBtn}>
-            <Ionicons name="share-outline" size={20} color="rgba(255,255,255,0.4)" />
+          <TouchableOpacity
+            style={[styles.extraBtn, showEQ && styles.extraBtnActive]}
+            onPress={() => setShowEQ(s => !s)}
+          >
+            <Ionicons name="options-outline" size={20} color={showEQ ? '#000' : 'rgba(255,255,255,0.4)'} />
           </TouchableOpacity>
         </View>
-      </Animated.View>
+
+        {/* EQ Panel */}
+        {showEQ && (
+          <EQPanel
+            gains={eqGains}
+            onChangeBand={setEqBand}
+            onChangePreset={setEqPreset}
+          />
+        )}
+
+        <View style={{ height: 40 }} />
+      </Animated.ScrollView>
     </View>
   );
 }
-
-const ART = width - 64;
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#0a0a0a' },
@@ -197,14 +312,13 @@ const styles = StyleSheet.create({
 
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingTop: 56, paddingHorizontal: 24, marginBottom: 24,
+    paddingTop: 16, paddingHorizontal: 24, marginBottom: 16,
   },
   headerLabel: { color: 'rgba(255,255,255,0.4)', fontSize: 11, letterSpacing: 2, fontWeight: '600' },
 
-  artworkSection: { alignItems: 'center', paddingHorizontal: 32, marginBottom: 32 },
+  artworkSection: { alignItems: 'center', paddingHorizontal: 32, marginBottom: 28 },
   artworkWrap: {
-    width: ART, height: ART,
-    borderRadius: 20,
+    width: ART, height: ART, borderRadius: 20,
     shadowColor: '#000', shadowOffset: { width: 0, height: 20 }, shadowOpacity: 0.6, shadowRadius: 40,
     overflow: 'hidden',
   },
@@ -217,17 +331,17 @@ const styles = StyleSheet.create({
   },
   artworkLoadingOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: 'rgba(0,0,0,0.55)',
     alignItems: 'center', justifyContent: 'center',
   },
 
   infoRow: {
     flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: 24, marginBottom: 24, gap: 12,
+    paddingHorizontal: 24, marginBottom: 20, gap: 12,
   },
   infoText: { flex: 1 },
-  trackTitle: { color: '#fff', fontSize: 22, fontWeight: '800', letterSpacing: -0.5, marginBottom: 4 },
-  trackArtist: { color: 'rgba(255,255,255,0.5)', fontSize: 15 },
+  trackTitle: { color: '#fff', fontSize: 20, fontWeight: '800', letterSpacing: -0.5, marginBottom: 4 },
+  trackArtist: { color: 'rgba(255,255,255,0.5)', fontSize: 14 },
   likeBtn: {
     width: 42, height: 42, borderRadius: 21,
     backgroundColor: 'rgba(255,255,255,0.1)',
@@ -236,7 +350,7 @@ const styles = StyleSheet.create({
   },
   likeBtnFilled: { backgroundColor: '#fff', borderColor: '#fff' },
 
-  progressSection: { paddingHorizontal: 24, marginBottom: 32 },
+  progressSection: { paddingHorizontal: 24, marginBottom: 28 },
   progressTrack: { height: 4, backgroundColor: 'rgba(255,255,255,0.12)', borderRadius: 2, marginBottom: 8 },
   progressFill: { height: '100%', backgroundColor: '#fff', borderRadius: 2, position: 'relative' },
   progressThumb: {
@@ -249,19 +363,56 @@ const styles = StyleSheet.create({
 
   controls: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 28, marginBottom: 28,
+    paddingHorizontal: 28, marginBottom: 24,
   },
   playBtn: {
-    width: 72, height: 72, borderRadius: 36,
+    width: 68, height: 68, borderRadius: 34,
     backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center',
     shadowColor: '#fff', shadowRadius: 20, shadowOpacity: 0.15,
   },
 
   extras: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 24,
+    paddingHorizontal: 24, marginBottom: 8,
   },
-  extraBtn: { padding: 8 },
+  extraBtn: {
+    padding: 8, borderRadius: 10,
+  },
+  extraBtnActive: {
+    backgroundColor: '#fff',
+  },
   waveform: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   waveBar: { width: 2.5, backgroundColor: '#fff', borderRadius: 1 },
+});
+
+const eqStyles = StyleSheet.create({
+  panel: {
+    marginHorizontal: 16, marginBottom: 12,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderRadius: 18, padding: 16,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)',
+  },
+  title: {
+    color: 'rgba(255,255,255,0.5)', fontSize: 11,
+    fontWeight: '700', letterSpacing: 1.5,
+    marginBottom: 12, textAlign: 'center',
+  },
+  presets: { flexDirection: 'row', gap: 8, paddingBottom: 16 },
+  chip: {
+    paddingHorizontal: 14, paddingVertical: 6, borderRadius: 100,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)',
+  },
+  chipActive: { backgroundColor: '#fff', borderColor: '#fff' },
+  chipText: { color: 'rgba(255,255,255,0.6)', fontSize: 12, fontWeight: '500' },
+  chipTextActive: { color: '#000', fontWeight: '700' },
+  sliders: { flexDirection: 'row', justifyContent: 'space-around', alignItems: 'flex-end' },
+  sliderWrap: { alignItems: 'center', gap: 6, flex: 1 },
+  gainText: { color: 'rgba(255,255,255,0.5)', fontSize: 10, fontWeight: '600', minWidth: 28, textAlign: 'center' },
+  bandLabel: { color: 'rgba(255,255,255,0.35)', fontSize: 10, fontWeight: '500' },
+  nativeBtn: {
+    width: 28, height: 28, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.07)', borderRadius: 6,
+  },
+  nativeBar: { width: 4, backgroundColor: '#fff', borderRadius: 2, alignSelf: 'center' },
 });

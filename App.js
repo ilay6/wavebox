@@ -118,7 +118,7 @@ export default function App() {
               <Tab.Screen name="Library" component={LibraryScreen} />
             </Tab.Navigator>
 
-            <MiniPlayer onPress={() => setPlayerOpen(true)} />
+            {!playerOpen && <MiniPlayer onPress={() => setPlayerOpen(true)} />}
 
             <PlayerBottomSheet visible={playerOpen} onClose={() => setPlayerOpen(false)} />
           </View>
