@@ -1,5 +1,9 @@
 // WaveBox music service — uses yt-dlp server
-const SERVER = process.env.EXPO_PUBLIC_API_URL || 'https://wavebox-w3ft.onrender.com';
+// Auto-detect: if running locally use localhost, otherwise use Render
+const isLocal = typeof window !== 'undefined' &&
+  (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+const SERVER = process.env.EXPO_PUBLIC_API_URL ||
+  (isLocal ? 'http://localhost:8888' : 'https://wavebox-w3ft.onrender.com');
 
 // ─── Timeout helper (AbortSignal.timeout not universally supported) ───────────
 function fetchWithTimeout(url, timeoutMs = 30000) {

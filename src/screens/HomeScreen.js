@@ -135,7 +135,7 @@ export default function HomeScreen({ navigation }) {
   const [loadingRu, setLoadingRu] = useState(true);
   const [loadingChill, setLoadingChill] = useState(true);
   const [loadingTrending, setLoadingTrending] = useState(true);
-  const loading = loadingNew && loadingRu && loadingChill && loadingTrending;
+  const loading = loadingNew || loadingRu || loadingChill || loadingTrending;
   const [greeting, setGreeting] = useState('');
   const { playTrack } = usePlayer();
   const scrollY = useRef(new Animated.Value(0)).current;
@@ -231,7 +231,7 @@ export default function HomeScreen({ navigation }) {
         {/* New Releases */}
         <View style={styles.section}>
           <SectionHeader title="New Releases" />
-          {loading ? <HorizontalSkeleton /> : (
+          {loadingNew ? <HorizontalSkeleton /> : (
             <ScrollView horizontal showsHorizontalScrollIndicator={false}
               contentContainerStyle={{ paddingLeft: 16, paddingRight: 8 }}>
               {newTracks.map(t => (
@@ -244,7 +244,7 @@ export default function HomeScreen({ navigation }) {
         {/* Russian */}
         <View style={styles.section}>
           <SectionHeader title="Russian Hits" />
-          {loading ? <HorizontalSkeleton /> : (
+          {loadingRu ? <HorizontalSkeleton /> : (
             <ScrollView horizontal showsHorizontalScrollIndicator={false}
               contentContainerStyle={{ paddingLeft: 16, paddingRight: 8 }}>
               {russianTracks.map(t => (
@@ -257,7 +257,7 @@ export default function HomeScreen({ navigation }) {
         {/* Chill */}
         <View style={styles.section}>
           <SectionHeader title="Chill & Lo-Fi" />
-          {loading ? <HorizontalSkeleton /> : (
+          {loadingChill ? <HorizontalSkeleton /> : (
             <ScrollView horizontal showsHorizontalScrollIndicator={false}
               contentContainerStyle={{ paddingLeft: 16, paddingRight: 8 }}>
               {chillTracks.map(t => (
@@ -285,7 +285,7 @@ export default function HomeScreen({ navigation }) {
         </View>
 
         <View style={{ marginTop: 8 }}>
-          {loading ? <TrackSkeleton /> : genreTracks.map((track, i) => (
+          {loadingTrending ? <TrackSkeleton /> : genreTracks.map((track, i) => (
             <TrackCard key={track.id} track={track} index={i} showIndex onPress={() => playTrack(track, genreTracks)} />
           ))}
         </View>

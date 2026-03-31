@@ -2,7 +2,10 @@ import { createContext, useContext, useState, useRef, useCallback, useEffect } f
 import { Platform } from 'react-native';
 
 const PlayerContext = createContext(null);
-const SERVER = process.env.EXPO_PUBLIC_API_URL || 'https://wavebox-w3ft.onrender.com';
+const isLocal = typeof window !== 'undefined' &&
+  (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+const SERVER = process.env.EXPO_PUBLIC_API_URL ||
+  (isLocal ? 'http://localhost:8888' : 'https://wavebox-w3ft.onrender.com');
 
 // ── Web Audio Engine (HTML5) ────────────────────────────────────────────────
 class WebAudio {
