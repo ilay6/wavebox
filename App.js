@@ -1,7 +1,7 @@
 import 'react-native-gesture-handler';
 import { StatusBar } from 'expo-status-bar';
-import { useState, createContext, useContext, useRef, useEffect } from 'react';
-import { StyleSheet, View, Modal, TouchableOpacity, Animated, Dimensions, Platform } from 'react-native';
+import { useState, createContext, useContext } from 'react';
+import { StyleSheet, View, TouchableOpacity, Platform } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
@@ -16,7 +16,6 @@ import PlayerScreen from './src/screens/PlayerScreen';
 import MiniPlayer from './src/components/MiniPlayer';
 
 const Tab = createBottomTabNavigator();
-const { height } = Dimensions.get('window');
 
 export const PlayerModalContext = createContext({ open: () => {}, close: () => {} });
 export const usePlayerModal = () => useContext(PlayerModalContext);
@@ -55,45 +54,28 @@ function TabBar({ state, navigation }) {
   );
 }
 
-// Bottom sheet player (not full screen)
-function PlayerBottomSheet({ visible, onClose }) {
-  const slideAnim = useRef(new Animated.Value(height)).current;
-  const backdropAnim = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    if (visible) {
-      Animated.parallel([
-        Animated.spring(slideAnim, { toValue: 0, tension: 65, friction: 12, useNativeDriver: true }),
-        Animated.timing(backdropAnim, { toValue: 1, duration: 250, useNativeDriver: true }),
-      ]).start();
-    } else {
-      Animated.parallel([
-        Animated.timing(slideAnim, { toValue: height, duration: 300, useNativeDriver: true }),
-        Animated.timing(backdropAnim, { toValue: 0, duration: 250, useNativeDriver: true }),
-      ]).start();
-    }
-  }, [visible]);
-
+// Full-screen overlay player (works on web + native)
+function PlayerOverlay({ visible, onClose }) {
   if (!visible) return null;
 
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
-      {/* Backdrop */}
-      <Animated.View
-        style={[styles.backdrop, { opacity: backdropAnim }]}
-        pointerEvents={visible ? 'auto' : 'none'}
-      >
-        <TouchableOpacity style={StyleSheet.absoluteFill} onPress={onClose} activeOpacity={1} />
-      </Animated.View>
-
-      {/* Sheet */}
-      <Animated.View style={[styles.sheet, { transform: [{ translateY: slideAnim }] }]}>
-        {/* Drag handle */}
+      {/* Tap backdrop to close */}
+      <TouchableOpacity
+        style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.5)' }]}
+        onPress={onClose}
+        activeOpacity={1}
+      />
+      {/* Player sheet — bottom 88% */}
+      <View style={styles.sheet}>
+        {/* Handle bar */}
         <TouchableOpacity onPress={onClose} style={styles.handleWrap} activeOpacity={0.7}>
           <View style={styles.handle} />
         </TouchableOpacity>
-        <PlayerScreen onClose={onClose} />
-      </Animated.View>
+        <View style={{ flex: 1 }}>
+          <PlayerScreen onClose={onClose} />
+        </View>
+      </View>
     </View>
   );
 }
@@ -120,7 +102,7 @@ export default function App() {
 
             {!playerOpen && <MiniPlayer onPress={() => setPlayerOpen(true)} />}
 
-            <PlayerBottomSheet visible={playerOpen} onClose={() => setPlayerOpen(false)} />
+            <PlayerOverlay visible={playerOpen} onClose={() => setPlayerOpen(false)} />
           </View>
         </NavigationContainer>
       </PlayerModalContext.Provider>
@@ -155,27 +137,23 @@ const styles = StyleSheet.create({
     shadowColor: '#fff', shadowRadius: 10, shadowOpacity: 0.2,
   },
 
-  backdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    zIndex: 100,
-  },
   sheet: {
     position: 'absolute',
     bottom: 0, left: 0, right: 0,
-    height: height * 0.88,
+    height: '88%',
     backgroundColor: '#0a0a0a',
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     overflow: 'hidden',
-    zIndex: 101,
+    zIndex: 200,
   },
   handleWrap: {
     alignItems: 'center',
-    paddingTop: 12, paddingBottom: 4,
+    paddingTop: 10, paddingBottom: 4,
+    zIndex: 201,
   },
   handle: {
     width: 40, height: 4, borderRadius: 2,
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: 'rgba(255,255,255,0.25)',
   },
 });

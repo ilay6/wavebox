@@ -193,8 +193,8 @@ export default function PlayerScreen({ onClose }) {
       <StatusBar barStyle="light-content" />
       <ArtworkBlurBg uri={artwork} />
 
-      <Animated.ScrollView
-        style={[styles.content, { opacity: fadeIn }]}
+      <ScrollView
+        style={styles.content}
         showsVerticalScrollIndicator={false}
         bounces={false}
       >
@@ -301,7 +301,7 @@ export default function PlayerScreen({ onClose }) {
         )}
 
         <View style={{ height: 40 }} />
-      </Animated.ScrollView>
+      </ScrollView>
     </View>
   );
 }
