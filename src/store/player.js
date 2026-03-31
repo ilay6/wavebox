@@ -16,10 +16,13 @@ class WebAudio {
 
   async load(uri) {
     this.unload();
-    this.audio = new Audio(uri);
-    this.audio.crossOrigin = 'anonymous';
+    this.audio = new Audio();
+    // Do NOT set crossOrigin — SoundCloud CDN blocks it
+    this.audio.preload = 'auto';
+    this.audio.src = uri;
 
     this.audio.ontimeupdate = () => {
+      if (!this.audio) return;
       this.onStatus?.({
         isLoaded: true,
         isPlaying: !this.audio.paused,
@@ -33,13 +36,16 @@ class WebAudio {
       this.onStatus?.({ isLoaded: true, isPlaying: false, positionMillis: 0, durationMillis: 0, didJustFinish: true });
     };
 
-    this.audio.onerror = () => {
+    this.audio.onerror = (e) => {
+      console.log('audio error', e);
       this.onStatus?.({ isLoaded: false, error: true });
     };
 
-    return new Promise((resolve, reject) => {
-      this.audio.oncanplay = () => resolve();
-      this.audio.onerror = () => reject(new Error('Audio load error'));
+    return new Promise((resolve) => {
+      // Resolve on canplay OR after 3s (some streams don't fire canplay)
+      const done = () => { clearTimeout(timer); resolve(); };
+      const timer = setTimeout(done, 3000);
+      this.audio.oncanplay = done;
       this.audio.load();
     });
   }

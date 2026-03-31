@@ -60,28 +60,28 @@ async function searchMultiple(artists, limitEach = 3) {
 // US Hip-Hop / Rap trending
 export async function getTrending(limit = 15) {
   return cachedFetch('trending', () =>
-    searchMultiple(['Drake', 'Travis Scott', 'Future', 'Don Toliver', 'Lil Baby'], 3)
+    searchMultiple(['Drake', 'Travis Scott', 'Future', 'Don Toliver'], 3)
   );
 }
 
 // New releases — different artists than trending
 export async function getNewReleases(limit = 10) {
   return cachedFetch('new_releases', () =>
-    searchMultiple(['The Weeknd', 'Post Malone', 'Playboi Carti', 'Nav', 'Gunna'], 2)
+    searchMultiple(['The Weeknd', 'Post Malone', 'Playboi Carti'], 3)
   );
 }
 
 // Russian hits
 export async function getRussianTracks(limit = 10) {
   return cachedFetch('russian', () =>
-    searchMultiple(['Моргенштерн', 'Скриптонит', 'FACE', 'Miyagi', 'Макс Корж'], 2)
+    searchMultiple(['Моргенштерн', 'Скриптонит', 'Miyagi'], 3)
   );
 }
 
 // Chill / lofi
 export async function getChillTracks(limit = 10) {
   return cachedFetch('chill', () =>
-    searchMultiple(['lofi hip hop', 'chillwave beats', 'ambient study', 'jazz lofi'], 3)
+    searchMultiple(['lofi hip hop', 'chillwave study', 'jazz cafe'], 3)
   );
 }
 
