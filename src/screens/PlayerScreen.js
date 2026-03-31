@@ -8,7 +8,7 @@ import { usePlayer } from '../store/player';
 import { formatDuration } from '../services/soundcloud';
 
 const { width } = Dimensions.get('window');
-const ART = width - 64;
+const ART = Math.min(width - 80, 280);
 
 // ─── Blurred artwork background ───────────────────────────────────────────────
 function ArtworkBlurBg({ uri }) {
@@ -312,11 +312,11 @@ const styles = StyleSheet.create({
 
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingTop: 16, paddingHorizontal: 24, marginBottom: 16,
+    paddingTop: 8, paddingHorizontal: 24, marginBottom: 10,
   },
   headerLabel: { color: 'rgba(255,255,255,0.4)', fontSize: 11, letterSpacing: 2, fontWeight: '600' },
 
-  artworkSection: { alignItems: 'center', paddingHorizontal: 32, marginBottom: 28 },
+  artworkSection: { alignItems: 'center', paddingHorizontal: 32, marginBottom: 16 },
   artworkWrap: {
     width: ART, height: ART, borderRadius: 20,
     shadowColor: '#000', shadowOffset: { width: 0, height: 20 }, shadowOpacity: 0.6, shadowRadius: 40,
@@ -337,7 +337,7 @@ const styles = StyleSheet.create({
 
   infoRow: {
     flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: 24, marginBottom: 20, gap: 12,
+    paddingHorizontal: 24, marginBottom: 12, gap: 12,
   },
   infoText: { flex: 1 },
   trackTitle: { color: '#fff', fontSize: 20, fontWeight: '800', letterSpacing: -0.5, marginBottom: 4 },
@@ -350,7 +350,7 @@ const styles = StyleSheet.create({
   },
   likeBtnFilled: { backgroundColor: '#fff', borderColor: '#fff' },
 
-  progressSection: { paddingHorizontal: 24, marginBottom: 28 },
+  progressSection: { paddingHorizontal: 24, marginBottom: 16 },
   progressTrack: { height: 4, backgroundColor: 'rgba(255,255,255,0.12)', borderRadius: 2, marginBottom: 8 },
   progressFill: { height: '100%', backgroundColor: '#fff', borderRadius: 2, position: 'relative' },
   progressThumb: {
@@ -363,7 +363,7 @@ const styles = StyleSheet.create({
 
   controls: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 28, marginBottom: 24,
+    paddingHorizontal: 28, marginBottom: 14,
   },
   playBtn: {
     width: 68, height: 68, borderRadius: 34,

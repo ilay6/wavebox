@@ -140,7 +140,7 @@ const styles = StyleSheet.create({
   sheet: {
     position: 'absolute',
     bottom: 0, left: 0, right: 0,
-    height: '88%',
+    height: '75%',
     backgroundColor: '#0a0a0a',
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
