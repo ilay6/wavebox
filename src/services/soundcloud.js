@@ -1,5 +1,5 @@
 // WaveBox music service — uses local yt-dlp server
-const SERVER = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:8888';
+const SERVER = process.env.EXPO_PUBLIC_API_URL || 'https://wavebox-w3ft.onrender.com';
 
 export async function searchTracks(query, limit = 20) {
   try {
