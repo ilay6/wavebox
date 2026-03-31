@@ -91,24 +91,32 @@ async def search(q: str, limit: int = 20):
 
 @app.get("/stream")
 async def stream(url: str):
-    """Get direct (non-HLS) audio stream URL for a track"""
-    # Prefer direct HTTP MP3/M4A — browsers can't play HLS (.m3u8) natively
+    """Download track and serve as audio file (bypasses HLS issue)"""
+    cache_key = str(abs(hash(url)))
+
+    # Check cache first
+    for ext in ["mp3", "m4a", "webm", "opus"]:
+        cached = os.path.join(CACHE_DIR, f"{cache_key}.{ext}")
+        if os.path.exists(cached):
+            return FileResponse(cached, media_type="audio/mpeg", headers={"Accept-Ranges": "bytes"})
+
+    output_template = os.path.join(CACHE_DIR, f"{cache_key}.%(ext)s")
     code, stdout, stderr = await run_ytdlp(
         url,
-        "--format", "http_mp3_128/http_aac_128/bestaudio[protocol!=m3u8_native][protocol!=m3u8][protocol!=hls]/bestaudio/best",
-        "--get-url",
+        "--format", "bestaudio/best",
+        "--output", output_template,
+        "--no-playlist",
         "--no-warnings",
         "--quiet",
-        timeout=15,
+        timeout=60,
     )
-    if code != 0 or not stdout.strip():
-        raise HTTPException(status_code=404, detail="Stream not found")
 
-    stream_url = stdout.strip().split("\n")[0]
-    # Double-check: reject HLS playlists
-    if ".m3u8" in stream_url:
-        raise HTTPException(status_code=404, detail="Only HLS available, not supported")
-    return {"stream_url": stream_url}
+    for ext in ["mp3", "m4a", "webm", "opus", "aac"]:
+        path = os.path.join(CACHE_DIR, f"{cache_key}.{ext}")
+        if os.path.exists(path):
+            return FileResponse(path, media_type="audio/mpeg", headers={"Accept-Ranges": "bytes"})
+
+    raise HTTPException(status_code=404, detail="Download failed")
 
 
 @app.get("/download")

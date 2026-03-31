@@ -227,52 +227,21 @@ export default function WaveScreen() {
           <WaveBars isActive={active && isPlaying} />
         </View>
 
-        {/* Button or Panel */}
+        {/* Start button — when active, MiniPlayer at bottom handles controls */}
         {!active ? (
           <TouchableOpacity style={styles.startBtn} onPress={handleStart} activeOpacity={0.8}>
             <Ionicons name="play" size={18} color="#fff" />
             <Text style={styles.startBtnText}>Start My Wave</Text>
           </TouchableOpacity>
         ) : (
-          <Animated.View style={[styles.panel, { opacity: panelAnim, transform: [{ translateY: panelY }] }]}>
-            <BlurView intensity={50} tint="dark" style={StyleSheet.absoluteFill} />
-            <View style={styles.panelOverlay} />
-            <View style={styles.panelBorder} />
-
-            {/* Track info row */}
-            <View style={styles.panelTrack}>
-              <View style={styles.panelArtwork}>
-                <View style={[styles.panelDot, isPlaying && styles.panelDotActive]} />
-              </View>
-              <View style={styles.panelInfo}>
-                <Text style={styles.panelNowLabel}>NOW PLAYING</Text>
-                <Text style={styles.panelTitle} numberOfLines={1}>{track?.title || '...'}</Text>
-                <Text style={styles.panelArtist}>{track?.user?.username}</Text>
-              </View>
-            </View>
-
-            {/* Controls */}
-            <View style={styles.panelButtons}>
-              <TouchableOpacity style={styles.pBtn} onPress={togglePlay}>
-                <Ionicons name={isPlaying ? 'pause' : 'play'} size={20} color="#fff" />
-              </TouchableOpacity>
-
-              <TouchableOpacity style={styles.pBtn} onPress={handleSkip}>
-                <Ionicons name="play-skip-forward" size={18} color="rgba(255,255,255,0.65)" />
-              </TouchableOpacity>
-
-              <TouchableOpacity style={styles.pBtn}>
-                <Ionicons name="heart-outline" size={18} color="rgba(255,255,255,0.65)" />
-              </TouchableOpacity>
-
-              <TouchableOpacity style={styles.pBtn}>
-                <Ionicons name="shuffle" size={18} color="rgba(255,255,255,0.65)" />
-              </TouchableOpacity>
-
-              <View style={{ flex: 1 }} />
-
-              <TouchableOpacity style={styles.pBtnStop} onPress={() => setActive(false)}>
-                <Ionicons name="stop" size={15} color="rgba(255,255,255,0.4)" />
+          <Animated.View style={[styles.activeInfo, { opacity: panelAnim, transform: [{ translateY: panelY }] }]}>
+            <View style={styles.activeInfoInner}>
+              <View style={[styles.activeDot, isPlaying && styles.activeDotLive]} />
+              <Text style={styles.activeLabel}>
+                {isPlaying ? 'Playing your wave' : 'Wave paused'}
+              </Text>
+              <TouchableOpacity onPress={() => { setActive(false); }} style={styles.stopBtn}>
+                <Ionicons name="stop-circle-outline" size={20} color="rgba(255,255,255,0.4)" />
               </TouchableOpacity>
             </View>
           </Animated.View>
@@ -312,42 +281,21 @@ const styles = StyleSheet.create({
   },
   startBtnText: { color: '#fff', fontSize: 16, fontWeight: '600' },
 
-  // Panel
-  panel: {
-    width: '100%', borderRadius: 22, overflow: 'hidden',
-    shadowColor: '#000', shadowRadius: 30, shadowOpacity: 0.5, shadowOffset: { width: 0, height: 10 },
+  activeInfo: { width: '100%' },
+  activeInfoInner: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    paddingHorizontal: 20, paddingVertical: 14,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)',
   },
-  panelOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(12,12,12,0.75)' },
-  panelBorder: { ...StyleSheet.absoluteFillObject, borderRadius: 22, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
-
-  panelTrack: { flexDirection: 'row', alignItems: 'center', padding: 18, gap: 14 },
-  panelArtwork: {
-    width: 46, height: 46, borderRadius: 12,
-    backgroundColor: 'rgba(255,255,255,0.07)',
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)',
-    alignItems: 'center', justifyContent: 'center',
+  activeDot: {
+    width: 8, height: 8, borderRadius: 4,
+    backgroundColor: 'rgba(255,255,255,0.3)',
   },
-  panelDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: 'rgba(255,255,255,0.3)' },
-  panelDotActive: { backgroundColor: '#fff', shadowColor: '#fff', shadowRadius: 8, shadowOpacity: 0.6 },
-  panelInfo: { flex: 1 },
-  panelNowLabel: { color: 'rgba(255,255,255,0.3)', fontSize: 9, letterSpacing: 2, fontWeight: '700', marginBottom: 4 },
-  panelTitle: { color: '#fff', fontSize: 15, fontWeight: '700', marginBottom: 2 },
-  panelArtist: { color: 'rgba(255,255,255,0.4)', fontSize: 12 },
-
-  panelButtons: {
-    flexDirection: 'row', alignItems: 'center', gap: 8,
-    paddingHorizontal: 18, paddingBottom: 18,
+  activeDotLive: {
+    backgroundColor: '#fff',
+    shadowColor: '#fff', shadowRadius: 6, shadowOpacity: 0.8,
   },
-  pBtn: {
-    width: 46, height: 46, borderRadius: 13,
-    backgroundColor: 'rgba(255,255,255,0.07)',
-    alignItems: 'center', justifyContent: 'center',
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)',
-  },
-  pBtnStop: {
-    width: 38, height: 38, borderRadius: 11,
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    alignItems: 'center', justifyContent: 'center',
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)',
-  },
+  activeLabel: { flex: 1, color: 'rgba(255,255,255,0.5)', fontSize: 13 },
+  stopBtn: { padding: 4 },
 });
