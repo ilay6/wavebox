@@ -96,7 +96,12 @@ class NativeAudio {
 async function resolveStream(track) {
   if (!track?.url) return null;
   try {
-    const res = await fetch(`${SERVER}/stream?url=${encodeURIComponent(track.url)}`);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 20000);
+    const res = await fetch(
+      `${SERVER}/stream?url=${encodeURIComponent(track.url)}`,
+      { signal: controller.signal }
+    ).finally(() => clearTimeout(timer));
     if (!res.ok) return null;
     const d = await res.json();
     return d.stream_url || null;

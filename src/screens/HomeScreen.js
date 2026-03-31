@@ -9,7 +9,7 @@ import AnimatedBackground from '../components/AnimatedBackground';
 import TrackCard from '../components/TrackCard';
 import {
   getTrending, getNewReleases, getRussianTracks,
-  getChillTracks, getTopTracks, pingServer
+  getChillTracks, getTopTracks
 } from '../services/soundcloud';
 import { usePlayer } from '../store/player';
 
@@ -131,8 +131,11 @@ export default function HomeScreen({ navigation }) {
   const [chillTracks, setChillTracks] = useState([]);
   const [genreTracks, setGenreTracks] = useState([]);
   const [selectedGenre, setSelectedGenre] = useState('All');
-  const [loading, setLoading] = useState(true);
-  const [serverWaking, setServerWaking] = useState(false);
+  const [loadingNew, setLoadingNew] = useState(true);
+  const [loadingRu, setLoadingRu] = useState(true);
+  const [loadingChill, setLoadingChill] = useState(true);
+  const [loadingTrending, setLoadingTrending] = useState(true);
+  const loading = loadingNew && loadingRu && loadingChill && loadingTrending;
   const [greeting, setGreeting] = useState('');
   const { playTrack } = usePlayer();
   const scrollY = useRef(new Animated.Value(0)).current;
@@ -148,26 +151,11 @@ export default function HomeScreen({ navigation }) {
   }, []);
 
   async function loadAll() {
-    setLoading(true);
-    setServerWaking(true);
-
-    // Wake up server first, then load sections in parallel
-    await pingServer();
-    setServerWaking(false);
-
-    const [t, n, r, c] = await Promise.all([
-      getTrending(15),
-      getNewReleases(10),
-      getRussianTracks(10),
-      getChillTracks(10),
-    ]);
-
-    setTrending(t);
-    setNewTracks(n);
-    setRussianTracks(r);
-    setChillTracks(c);
-    setGenreTracks(t);
-    setLoading(false);
+    // Load each section independently so they appear as soon as ready
+    getNewReleases(10).then(n => { setNewTracks(n); setLoadingNew(false); });
+    getRussianTracks(10).then(r => { setRussianTracks(r); setLoadingRu(false); });
+    getChillTracks(10).then(c => { setChillTracks(c); setLoadingChill(false); });
+    getTrending(15).then(t => { setTrending(t); setGenreTracks(t); setLoadingTrending(false); });
   }
 
   async function handleGenre(g) {
@@ -204,11 +192,11 @@ export default function HomeScreen({ navigation }) {
           </TouchableOpacity>
         </View>
 
-        {/* Server waking up notice */}
-        {serverWaking && (
+        {/* Loading notice */}
+        {loading && (
           <View style={styles.wakingBanner}>
             <ActivityIndicator size="small" color="rgba(255,255,255,0.5)" />
-            <Text style={styles.wakingText}>Starting server, please wait...</Text>
+            <Text style={styles.wakingText}>Loading music... (first load may take ~30s)</Text>
           </View>
         )}
 
