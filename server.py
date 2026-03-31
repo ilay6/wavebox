@@ -122,36 +122,37 @@ async def search(q: str, limit: int = 10):
 
 @app.get("/stream")
 async def stream(url: str):
-    """Download track and serve as audio file (handles HLS by downloading server-side)."""
+    """Stream audio — serves cached file instantly, downloads on first request."""
     cache_key = str(abs(hash(url)))
 
     # Serve from cache instantly
     cached = find_cached(cache_key)
     if cached:
-        return FileResponse(
-            cached,
-            media_type="audio/mpeg",
-            headers={
-                "Accept-Ranges": "bytes",
-                "Cache-Control": "public, max-age=3600",
-            }
-        )
+        return FileResponse(cached, media_type="audio/mpeg",
+                            headers={"Accept-Ranges": "bytes", "Cache-Control": "public, max-age=3600"})
 
     # Download then serve
     await _download_to_cache(url, cache_key)
 
     cached = find_cached(cache_key)
     if cached:
-        return FileResponse(
-            cached,
-            media_type="audio/mpeg",
-            headers={
-                "Accept-Ranges": "bytes",
-                "Cache-Control": "public, max-age=3600",
-            }
-        )
+        return FileResponse(cached, media_type="audio/mpeg",
+                            headers={"Accept-Ranges": "bytes", "Cache-Control": "public, max-age=3600"})
 
     raise HTTPException(status_code=404, detail="Download failed")
+
+
+@app.get("/stream_url")
+async def stream_url(url: str):
+    """Try to get a direct stream URL quickly (faster than full download)."""
+    code, stdout, _ = await run_ytdlp(
+        url, "--get-url", "--format", "bestaudio/best",
+        "--no-warnings", "--quiet", timeout=10,
+    )
+    if code == 0 and stdout.strip():
+        direct = stdout.strip().split("\n")[0]
+        return {"url": direct}
+    return {"url": None}
 
 
 @app.get("/preload")

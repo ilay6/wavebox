@@ -8,8 +8,22 @@ const isLocal = typeof window !== 'undefined' &&
 const SERVER = process.env.EXPO_PUBLIC_API_URL ||
   (isLocal ? 'http://localhost:8888' : 'https://wavebox-w3ft.onrender.com');
 
-// Build stream URL — server downloads & caches the audio file
-function buildStreamUrl(trackUrl) {
+// Get audio URI — tries fast direct URL first, falls back to server download
+async function getAudioUri(trackUrl) {
+  try {
+    // Try to get direct URL quickly (no download needed)
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+    const res = await fetch(
+      `${SERVER}/stream_url?url=${encodeURIComponent(trackUrl)}`,
+      { signal: controller.signal }
+    ).finally(() => clearTimeout(timer));
+    if (res.ok) {
+      const data = await res.json();
+      if (data.url) return data.url;
+    }
+  } catch {}
+  // Fallback: server downloads file and serves it
   return `${SERVER}/stream?url=${encodeURIComponent(trackUrl)}`;
 }
 
@@ -74,7 +88,6 @@ class WebAudio {
     }
 
     this.audio = new Audio();
-    this.audio.crossOrigin = 'anonymous'; // required for Web Audio API; OK since we proxy via our server
     this.audio.preload = 'auto';
     this.audio.src = uri;
 
@@ -109,13 +122,6 @@ class WebAudio {
 
   async play() {
     if (!this.audio) return;
-
-    // Resume context (may be suspended due to autoplay policy)
-    if (this.ctx?.state === 'suspended') await this.ctx.resume().catch(() => {});
-
-    // Build Web Audio graph on first play (requires user gesture)
-    if (this.ctx && !this.source) this._buildGraph();
-
     return this.audio.play().catch(e => {
       console.log('play() blocked:', e.message);
     });
@@ -262,7 +268,7 @@ export function PlayerProvider({ children }) {
       const engine = getEngine();
       engine.unload();
 
-      const streamUri = buildStreamUrl(track.url);
+      const streamUri = await getAudioUri(track.url);
 
       if (Platform.OS === 'web') {
         engine.onStatus = handleStatus;

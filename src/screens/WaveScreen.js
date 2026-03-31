@@ -113,7 +113,9 @@ function Cube3D({ size = 110, isActive }) {
   );
 }
 
-// ─── Волновые бары ────────────────────────────────────────────────────────────
+// ─── Animated wave bars (fixed — no hooks inside map) ────────────────────────
+const WAVE_COUNT = 24;
+
 function WaveBars({ isActive }) {
   const COUNT = 28;
   const bars = useRef(Array.from({ length: COUNT }, () => new Animated.Value(0.08))).current;
