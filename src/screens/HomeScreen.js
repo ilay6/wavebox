@@ -1,35 +1,141 @@
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Dimensions, Animated, Image } from 'react-native';
+import {
+  View, Text, ScrollView, TouchableOpacity, StyleSheet,
+  Dimensions, Animated, Image, ActivityIndicator
+} from 'react-native';
 import { useState, useEffect, useRef } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { BlurView } from 'expo-blur';
 import AnimatedBackground from '../components/AnimatedBackground';
 import TrackCard from '../components/TrackCard';
-import { getTopTracks, getNewReleases, getRecommended } from '../services/soundcloud';
+import {
+  getTrending, getNewReleases, getRussianTracks,
+  getChillTracks, getTopTracks, pingServer
+} from '../services/soundcloud';
 import { usePlayer } from '../store/player';
-import { usePlayerModal } from '../../App';
-import { colors, spacing } from '../theme';
 
 const { width } = Dimensions.get('window');
 
-const GENRES = ['All', 'Lo-Fi', 'Synthwave', 'Ambient', 'Hip-Hop', 'Indie', 'Techno', 'Jazz'];
+const GENRES = ['All', 'Hip-Hop', 'Lo-Fi', 'Synthwave', 'Ambient', 'Indie', 'Techno', 'Jazz'];
 
-const FEATURED = [
-  { id: 'f1', title: 'Late Night Coding', sub: 'Deep focus · 2h 14m', icon: 'code-slash-outline' },
-  { id: 'f2', title: 'Midnight Drive', sub: 'Chill · 1h 42m', icon: 'car-outline' },
-  { id: 'f3', title: 'Soul Sessions', sub: 'Emotional · 58m', icon: 'heart-outline' },
-  { id: 'f4', title: 'Underground Cuts', sub: 'Rare finds · 1h 20m', icon: 'layers-outline' },
-];
+// ─── Skeleton loader ──────────────────────────────────────────────────────────
+function SkeletonBox({ width: w, height: h, borderRadius = 8, style }) {
+  const anim = useRef(new Animated.Value(0.3)).current;
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(anim, { toValue: 0.7, duration: 900, useNativeDriver: true }),
+        Animated.timing(anim, { toValue: 0.3, duration: 900, useNativeDriver: true }),
+      ])
+    ).start();
+  }, []);
+  return (
+    <Animated.View style={[{
+      width: w, height: h, borderRadius,
+      backgroundColor: 'rgba(255,255,255,0.1)', opacity: anim,
+    }, style]} />
+  );
+}
 
+function HorizontalSkeleton() {
+  return (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false}
+      contentContainerStyle={{ paddingLeft: 16, paddingRight: 8 }}>
+      {[1, 2, 3, 4].map(i => (
+        <View key={i} style={{ marginRight: 12 }}>
+          <SkeletonBox width={140} height={140} borderRadius={14} />
+          <SkeletonBox width={110} height={12} borderRadius={6} style={{ marginTop: 10 }} />
+          <SkeletonBox width={70} height={10} borderRadius={6} style={{ marginTop: 6 }} />
+        </View>
+      ))}
+    </ScrollView>
+  );
+}
+
+function TrackSkeleton() {
+  return (
+    <View style={{ paddingHorizontal: 16 }}>
+      {[1, 2, 3, 4, 5].map(i => (
+        <View key={i} style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
+          <SkeletonBox width={20} height={14} borderRadius={4} style={{ marginRight: 12 }} />
+          <SkeletonBox width={48} height={48} borderRadius={10} style={{ marginRight: 12 }} />
+          <View style={{ flex: 1 }}>
+            <SkeletonBox width="80%" height={13} borderRadius={6} />
+            <SkeletonBox width="50%" height={11} borderRadius={6} style={{ marginTop: 6 }} />
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+// ─── Horizontal track card ────────────────────────────────────────────────────
+function HorizontalTrackCard({ track, onPress }) {
+  return (
+    <TouchableOpacity style={hStyles.card} onPress={onPress} activeOpacity={0.75}>
+      <View style={hStyles.artwork}>
+        {track.artwork_url ? (
+          <Image source={{ uri: track.artwork_url }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+        ) : (
+          <Ionicons name="musical-note" size={28} color="rgba(255,255,255,0.15)" />
+        )}
+        <View style={hStyles.playOverlay}>
+          <Ionicons name="play" size={18} color="#fff" />
+        </View>
+      </View>
+      <Text style={hStyles.title} numberOfLines={2}>{track.title}</Text>
+      <Text style={hStyles.artist} numberOfLines={1}>{track.user?.username}</Text>
+    </TouchableOpacity>
+  );
+}
+
+// ─── Section with optional "See all" ─────────────────────────────────────────
+function SectionHeader({ title }) {
+  return (
+    <View style={styles.sectionHeader}>
+      <Text style={styles.sectionTitle}>{title}</Text>
+    </View>
+  );
+}
+
+// ─── Animated wave bars in banner ─────────────────────────────────────────────
+function WaveBarsAnimated() {
+  const bars = Array.from({ length: 16 }, (_, i) => {
+    const anim = useRef(new Animated.Value(Math.random())).current;
+    useEffect(() => {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(anim, { toValue: Math.random() * 0.8 + 0.2, duration: 350 + Math.random() * 400, useNativeDriver: false }),
+          Animated.timing(anim, { toValue: Math.random() * 0.3 + 0.05, duration: 350 + Math.random() * 400, useNativeDriver: false }),
+        ])
+      ).start();
+    }, []);
+    return anim;
+  });
+  return (
+    <View style={styles.waveBars}>
+      {bars.map((anim, i) => (
+        <Animated.View key={i} style={[styles.waveBar, {
+          height: anim.interpolate({ inputRange: [0, 1], outputRange: [3, 44] }),
+          opacity: anim.interpolate({ inputRange: [0, 1], outputRange: [0.1, 0.55] }),
+        }]} />
+      ))}
+    </View>
+  );
+}
+
+// ─── Main screen ──────────────────────────────────────────────────────────────
 export default function HomeScreen({ navigation }) {
-  const [tracks, setTracks] = useState([]);
+  const [trending, setTrending] = useState([]);
   const [newTracks, setNewTracks] = useState([]);
-  const [recommended, setRecommended] = useState([]);
+  const [russianTracks, setRussianTracks] = useState([]);
+  const [chillTracks, setChillTracks] = useState([]);
+  const [genreTracks, setGenreTracks] = useState([]);
   const [selectedGenre, setSelectedGenre] = useState('All');
+  const [loading, setLoading] = useState(true);
+  const [serverWaking, setServerWaking] = useState(false);
   const [greeting, setGreeting] = useState('');
   const { playTrack } = usePlayer();
   const scrollY = useRef(new Animated.Value(0)).current;
-
   const headerOpacity = scrollY.interpolate({ inputRange: [0, 80], outputRange: [0, 1], extrapolate: 'clamp' });
 
   useEffect(() => {
@@ -42,34 +148,41 @@ export default function HomeScreen({ navigation }) {
   }, []);
 
   async function loadAll() {
-    const [main, fresh, rec] = await Promise.all([
-      getTopTracks('', 12),
-      getNewReleases(8),
-      getRecommended([]),
+    setLoading(true);
+    setServerWaking(true);
+
+    // Wake up server first, then load sections in parallel
+    await pingServer();
+    setServerWaking(false);
+
+    const [t, n, r, c] = await Promise.all([
+      getTrending(15),
+      getNewReleases(10),
+      getRussianTracks(10),
+      getChillTracks(10),
     ]);
-    setTracks(main);
-    setNewTracks(fresh);
-    setRecommended(rec);
+
+    setTrending(t);
+    setNewTracks(n);
+    setRussianTracks(r);
+    setChillTracks(c);
+    setGenreTracks(t);
+    setLoading(false);
   }
 
-  async function loadTracks(genre) {
-    const data = await getTopTracks(genre === 'All' ? '' : genre, 12);
-    setTracks(data);
-  }
-
-  function handleGenre(g) {
+  async function handleGenre(g) {
     setSelectedGenre(g);
-    loadTracks(g);
+    const data = await getTopTracks(g === 'All' ? '' : g, 15);
+    setGenreTracks(data);
   }
 
   return (
     <View style={styles.screen}>
       <AnimatedBackground />
 
-      {/* Sticky blur header on scroll */}
+      {/* Sticky header */}
       <Animated.View style={[styles.stickyHeader, { opacity: headerOpacity }]}>
-        <BlurView intensity={60} tint="dark" style={StyleSheet.absoluteFill} />
-        <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(8,8,8,0.7)' }]} />
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(8,8,8,0.85)' }]} />
         <Text style={styles.stickyTitle}>WaveBox</Text>
       </Animated.View>
 
@@ -90,6 +203,14 @@ export default function HomeScreen({ navigation }) {
             </View>
           </TouchableOpacity>
         </View>
+
+        {/* Server waking up notice */}
+        {serverWaking && (
+          <View style={styles.wakingBanner}>
+            <ActivityIndicator size="small" color="rgba(255,255,255,0.5)" />
+            <Text style={styles.wakingText}>Starting server, please wait...</Text>
+          </View>
+        )}
 
         {/* My Wave Banner */}
         <TouchableOpacity
@@ -119,50 +240,50 @@ export default function HomeScreen({ navigation }) {
           </View>
         </TouchableOpacity>
 
-        {/* Featured horizontal scroll */}
+        {/* New Releases */}
         <View style={styles.section}>
-          <SectionHeader title="Featured playlists" />
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingLeft: 16, paddingRight: 8 }}>
-            {FEATURED.map(f => (
-              <TouchableOpacity key={f.id} style={styles.featCard} activeOpacity={0.75}>
-                <View style={styles.featIcon}>
-                  <Ionicons name={f.icon} size={26} color="rgba(255,255,255,0.6)" />
-                </View>
-                <Text style={styles.featTitle}>{f.title}</Text>
-                <Text style={styles.featSub}>{f.sub}</Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
-
-        {/* Новинки */}
-        {newTracks.length > 0 && (
-          <View style={styles.section}>
-            <SectionHeader title="New releases" />
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingLeft: 16, paddingRight: 8 }}>
+          <SectionHeader title="New Releases" />
+          {loading ? <HorizontalSkeleton /> : (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingLeft: 16, paddingRight: 8 }}>
               {newTracks.map(t => (
                 <HorizontalTrackCard key={t.id} track={t} onPress={() => playTrack(t, newTracks)} />
               ))}
             </ScrollView>
-          </View>
-        )}
+          )}
+        </View>
 
-        {/* Рекомендации */}
-        {recommended.length > 0 && (
-          <View style={styles.section}>
-            <SectionHeader title="Recommended for you" />
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingLeft: 16, paddingRight: 8 }}>
-              {recommended.map(t => (
-                <HorizontalTrackCard key={t.id} track={t} onPress={() => playTrack(t, recommended)} />
+        {/* Russian */}
+        <View style={styles.section}>
+          <SectionHeader title="Russian Hits" />
+          {loading ? <HorizontalSkeleton /> : (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingLeft: 16, paddingRight: 8 }}>
+              {russianTracks.map(t => (
+                <HorizontalTrackCard key={t.id} track={t} onPress={() => playTrack(t, russianTracks)} />
               ))}
             </ScrollView>
-          </View>
-        )}
+          )}
+        </View>
 
-        {/* Genre filter */}
+        {/* Chill */}
+        <View style={styles.section}>
+          <SectionHeader title="Chill & Lo-Fi" />
+          {loading ? <HorizontalSkeleton /> : (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingLeft: 16, paddingRight: 8 }}>
+              {chillTracks.map(t => (
+                <HorizontalTrackCard key={t.id} track={t} onPress={() => playTrack(t, chillTracks)} />
+              ))}
+            </ScrollView>
+          )}
+        </View>
+
+        {/* Genre filter + tracks */}
         <View style={styles.section}>
           <SectionHeader title="Trending" />
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingLeft: 16, paddingRight: 8 }}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ paddingLeft: 16, paddingRight: 8, marginBottom: 16 }}>
             {GENRES.map(g => (
               <TouchableOpacity
                 key={g}
@@ -175,10 +296,9 @@ export default function HomeScreen({ navigation }) {
           </ScrollView>
         </View>
 
-        {/* Tracks */}
         <View style={{ marginTop: 8 }}>
-          {tracks.map((track, i) => (
-            <TrackCard key={track.id} track={track} index={i} showIndex onPress={() => playTrack(track, tracks)} />
+          {loading ? <TrackSkeleton /> : genreTracks.map((track, i) => (
+            <TrackCard key={track.id} track={track} index={i} showIndex onPress={() => playTrack(track, genreTracks)} />
           ))}
         </View>
 
@@ -188,63 +308,9 @@ export default function HomeScreen({ navigation }) {
   );
 }
 
-function SectionHeader({ title }) {
-  return (
-    <View style={styles.sectionHeader}>
-      <Text style={styles.sectionTitle}>{title}</Text>
-    </View>
-  );
-}
-
-function HorizontalTrackCard({ track, onPress }) {
-  const { open: openPlayer } = usePlayerModal();
-  const ARTWORK_BG = ['#111','#0e0e0e','#131313','#0d0d0d'];
-  return (
-    <TouchableOpacity style={hStyles.card} onPress={onPress} activeOpacity={0.75}>
-      <View style={[hStyles.artwork, { backgroundColor: ARTWORK_BG[track.id % ARTWORK_BG.length] }]}>
-        {track.artwork_url ? (
-          <Image source={{ uri: track.artwork_url }} style={StyleSheet.absoluteFill} resizeMode="cover" />
-        ) : (
-          <Ionicons name="musical-note" size={28} color="rgba(255,255,255,0.15)" />
-        )}
-        <View style={hStyles.playOverlay}>
-          <Ionicons name="play" size={20} color="#fff" />
-        </View>
-      </View>
-      <Text style={hStyles.title} numberOfLines={2}>{track.title}</Text>
-      <Text style={hStyles.artist} numberOfLines={1}>{track.user?.username}</Text>
-    </TouchableOpacity>
-  );
-}
-
-function WaveBarsAnimated() {
-  const bars = Array.from({ length: 18 }, (_, i) => {
-    const anim = useRef(new Animated.Value(Math.random())).current;
-    useEffect(() => {
-      Animated.loop(
-        Animated.sequence([
-          Animated.timing(anim, { toValue: Math.random(), duration: 400 + Math.random() * 400, useNativeDriver: false }),
-          Animated.timing(anim, { toValue: Math.random() * 0.4 + 0.1, duration: 400 + Math.random() * 400, useNativeDriver: false }),
-        ])
-      ).start();
-    }, []);
-    return anim;
-  });
-
-  return (
-    <View style={styles.waveBars}>
-      {bars.map((anim, i) => (
-        <Animated.View key={i} style={[styles.waveBar, {
-          height: anim.interpolate({ inputRange: [0, 1], outputRange: [4, 44] }),
-          opacity: anim.interpolate({ inputRange: [0, 1], outputRange: [0.15, 0.6] }),
-        }]} />
-      ))}
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#080808' },
+
   stickyHeader: {
     position: 'absolute', top: 0, left: 0, right: 0, zIndex: 100,
     height: 90, paddingTop: 50, alignItems: 'center', justifyContent: 'flex-end', paddingBottom: 12,
@@ -265,6 +331,15 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)',
   },
   avatarText: { color: '#fff', fontSize: 15, fontWeight: '600' },
+
+  wakingBanner: {
+    marginHorizontal: 16, marginBottom: 8,
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)',
+  },
+  wakingText: { color: 'rgba(255,255,255,0.4)', fontSize: 12 },
 
   waveBanner: { marginHorizontal: 16, borderRadius: 20, overflow: 'hidden', marginBottom: 8 },
   waveBannerInner: {
@@ -293,20 +368,6 @@ const styles = StyleSheet.create({
   sectionHeader: { paddingHorizontal: 20, marginBottom: 14 },
   sectionTitle: { color: '#fff', fontSize: 18, fontWeight: '700', letterSpacing: -0.3 },
 
-  featCard: {
-    width: 140, marginRight: 10,
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    borderRadius: 16, padding: 16,
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)',
-  },
-  featIcon: {
-    width: 46, height: 46, borderRadius: 12,
-    backgroundColor: 'rgba(255,255,255,0.07)',
-    alignItems: 'center', justifyContent: 'center', marginBottom: 12,
-  },
-  featTitle: { color: '#fff', fontSize: 13, fontWeight: '600', marginBottom: 4, lineHeight: 18 },
-  featSub: { color: 'rgba(255,255,255,0.4)', fontSize: 11 },
-
   chip: {
     paddingHorizontal: 16, paddingVertical: 8,
     borderRadius: 100, marginRight: 8,
@@ -324,12 +385,13 @@ const hStyles = StyleSheet.create({
     width: 140, height: 140, borderRadius: 14,
     alignItems: 'center', justifyContent: 'center',
     marginBottom: 10, overflow: 'hidden',
+    backgroundColor: '#111',
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)',
   },
   playOverlay: {
     position: 'absolute', bottom: 8, right: 8,
-    width: 34, height: 34, borderRadius: 17,
-    backgroundColor: 'rgba(0,0,0,0.6)',
+    width: 32, height: 32, borderRadius: 16,
+    backgroundColor: 'rgba(0,0,0,0.65)',
     alignItems: 'center', justifyContent: 'center',
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)',
   },

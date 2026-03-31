@@ -1,23 +1,111 @@
-// WaveBox music service — uses local yt-dlp server
+// WaveBox music service — uses yt-dlp server
 const SERVER = process.env.EXPO_PUBLIC_API_URL || 'https://wavebox-w3ft.onrender.com';
 
+// ─── Simple in-memory cache ───────────────────────────────────────────────────
+const cache = new Map();
+const CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+
+async function cachedFetch(key, fn) {
+  const now = Date.now();
+  const hit = cache.get(key);
+  if (hit && now - hit.ts < CACHE_TTL) return hit.data;
+  const data = await fn();
+  if (data && data.length > 0) cache.set(key, { data, ts: now });
+  return data;
+}
+
+// Wake up Render server (free tier sleeps after inactivity)
+export async function pingServer() {
+  try {
+    await fetch(`${SERVER}/health`, { signal: AbortSignal.timeout(8000) });
+  } catch {}
+}
+
+// ─── Core search ─────────────────────────────────────────────────────────────
 export async function searchTracks(query, limit = 20) {
   try {
-    const res = await fetch(`${SERVER}/search?q=${encodeURIComponent(query)}&limit=${limit}`);
+    const res = await fetch(
+      `${SERVER}/search?q=${encodeURIComponent(query)}&limit=${limit}`,
+      { signal: AbortSignal.timeout(25000) }
+    );
     if (!res.ok) throw new Error('server error');
     const data = await res.json();
     return data.tracks || [];
   } catch (e) {
     console.log('search error:', e);
-    return getMockTracks();
+    return [];
   }
 }
 
+// ─── Home sections — fixed diverse queries ───────────────────────────────────
+
+// Trending: popular US hip-hop / rap
+export async function getTrending(limit = 15) {
+  return cachedFetch('trending', () =>
+    searchTracks('Drake Travis Scott Future Don Toliver', limit)
+  );
+}
+
+// New releases: recent hits
+export async function getNewReleases(limit = 10) {
+  return cachedFetch('new_releases', () =>
+    searchTracks('The Weeknd Post Malone Playboi Carti 2024', limit)
+  );
+}
+
+// Russian section
+export async function getRussianTracks(limit = 10) {
+  return cachedFetch('russian', () =>
+    searchTracks('Моргенштерн Скриптонит FACE Miyagi', limit)
+  );
+}
+
+// Chill / lofi
+export async function getChillTracks(limit = 10) {
+  return cachedFetch('chill', () =>
+    searchTracks('lofi hip hop chill beats study', limit)
+  );
+}
+
+// Recommended: based on liked or default popular mix
+export async function getRecommended(likedTracks = []) {
+  if (likedTracks.length > 0) {
+    const artists = [...new Set(likedTracks.map(t => t.user?.username).filter(Boolean))];
+    const q = artists.slice(0, 3).join(' ');
+    return searchTracks(q, 20);
+  }
+  return cachedFetch('recommended', () =>
+    searchTracks('Kendrick Lamar Metro Boomin Nav', 20)
+  );
+}
+
+// Genre search with cache
+const GENRE_QUERIES = {
+  'Lo-Fi': 'lofi hip hop chill beats study',
+  'Synthwave': 'synthwave retrowave outrun 80s',
+  'Ambient': 'ambient atmospheric dark drone',
+  'Hip-Hop': 'Drake Travis Scott Kendrick Lamar',
+  'Indie': 'indie alternative bedroom pop',
+  'Techno': 'techno underground dark club',
+  'Jazz': 'jazz neo soul smooth cafe',
+};
+
+export async function getTopTracks(genre = '', limit = 15) {
+  if (genre && GENRE_QUERIES[genre]) {
+    return cachedFetch(`genre_${genre}`, () =>
+      searchTracks(GENRE_QUERIES[genre], limit)
+    );
+  }
+  return getTrending(limit);
+}
+
 export async function getStreamUrl(track) {
-  // If track has a direct URL — ask server for stream
   if (!track.url) return null;
   try {
-    const res = await fetch(`${SERVER}/stream?url=${encodeURIComponent(track.url)}`);
+    const res = await fetch(
+      `${SERVER}/stream?url=${encodeURIComponent(track.url)}`,
+      { signal: AbortSignal.timeout(15000) }
+    );
     if (!res.ok) throw new Error();
     const data = await res.json();
     return data.stream_url || null;
@@ -25,57 +113,6 @@ export async function getStreamUrl(track) {
     console.log('stream error:', e);
     return null;
   }
-}
-
-const POPULAR_QUERIES = [
-  'Drake', 'Travis Scott', 'The Weeknd', 'Kendrick Lamar', 'Post Malone',
-  'Playboi Carti', 'Future', 'Nav', 'Don Toliver', 'Metro Boomin',
-];
-
-const POPULAR_RU = [
-  'Моргенштерн', 'FACE', 'Скриптонит', 'Miyagi', 'Элджей', 'Макс Корж',
-];
-
-const GENRE_QUERIES = {
-  'Lo-Fi': 'lofi hip hop chill beats',
-  'Synthwave': 'synthwave retrowave 80s',
-  'Ambient': 'ambient atmospheric dark',
-  'Hip-Hop': 'Drake Travis Scott Kendrick',
-  'Indie': 'indie alternative bedroom pop',
-  'Techno': 'techno underground dark',
-  'Jazz': 'jazz neo soul smooth',
-  'Trap': 'trap dark rap 808',
-};
-
-export async function getTopTracks(genre = '', limit = 20) {
-  if (genre && GENRE_QUERIES[genre]) {
-    return searchTracks(GENRE_QUERIES[genre], limit);
-  }
-  // Mix popular EN + RU artists
-  const all = [...POPULAR_QUERIES, ...POPULAR_RU];
-  const q = all[Math.floor(Math.random() * all.length)];
-  return searchTracks(q, limit);
-}
-
-export async function getRecommended(likedTracks = []) {
-  if (likedTracks.length === 0) {
-    // Default: popular mix
-    const q = POPULAR_QUERIES[Math.floor(Math.random() * POPULAR_QUERIES.length)];
-    return searchTracks(q, 20);
-  }
-  // Based on liked artists
-  const artists = [...new Set(likedTracks.map(t => t.user?.username).filter(Boolean))];
-  const q = artists[Math.floor(Math.random() * artists.length)];
-  return searchTracks(q, 30);
-}
-
-export async function getNewReleases(limit = 10) {
-  const popular = [
-    'Drake 2024', 'Travis Scott new', 'The Weeknd 2024',
-    'Моргенштерн 2024', 'Скриптонит новое',
-  ];
-  const q = popular[Math.floor(Math.random() * popular.length)];
-  return searchTracks(q, limit);
 }
 
 export function formatDuration(ms) {
@@ -91,11 +128,4 @@ export function formatCount(n) {
   if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
   if (n >= 1000) return `${(n / 1000).toFixed(0)}K`;
   return n.toString();
-}
-
-// Fallback mock data when server is offline
-function getMockTracks() {
-  return [
-    { id: 1, title: 'Server offline — start server.py', user: { username: 'wavebox' }, duration: 0, artwork_url: null, url: null },
-  ];
 }
