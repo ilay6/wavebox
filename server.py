@@ -10,7 +10,7 @@ import tempfile
 import json
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 import uvicorn
 
 app = FastAPI()
@@ -55,7 +55,7 @@ async def _download_to_cache(url: str, cache_key: str):
         "--no-part",
         "--no-warnings",
         "--quiet",
-        timeout=90,
+        timeout=120,
     )
 
 
@@ -122,7 +122,7 @@ async def search(q: str, limit: int = 10):
 
 @app.get("/stream")
 async def stream(url: str):
-    """Stream audio — serves cached file instantly, downloads on first request."""
+    """Stream audio — serves cached file instantly, or streams while downloading."""
     cache_key = str(abs(hash(url)))
 
     # Serve from cache instantly
@@ -131,15 +131,59 @@ async def stream(url: str):
         return FileResponse(cached, media_type="audio/mpeg",
                             headers={"Accept-Ranges": "bytes", "Cache-Control": "public, max-age=3600"})
 
-    # Download then serve
-    await _download_to_cache(url, cache_key)
+    # Start download in background
+    output_template = os.path.join(CACHE_DIR, f"{cache_key}.%(ext)s")
 
-    cached = find_cached(cache_key)
-    if cached:
-        return FileResponse(cached, media_type="audio/mpeg",
-                            headers={"Accept-Ranges": "bytes", "Cache-Control": "public, max-age=3600"})
+    # Run yt-dlp as subprocess and stream output file as it grows
+    proc = await asyncio.create_subprocess_exec(
+        YT_DLP, url,
+        "--format", "bestaudio/best",
+        "--output", output_template,
+        "--no-playlist", "--no-part", "--no-warnings", "--quiet",
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.DEVNULL,
+    )
 
-    raise HTTPException(status_code=404, detail="Download failed")
+    # Wait for file to appear (up to 10s)
+    output_path = None
+    for _ in range(100):
+        await asyncio.sleep(0.1)
+        output_path = find_cached(cache_key)
+        if output_path:
+            break
+
+    if not output_path:
+        # Wait for full download
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=120)
+        except asyncio.TimeoutError:
+            proc.kill()
+        output_path = find_cached(cache_key)
+
+    if not output_path:
+        raise HTTPException(status_code=404, detail="Download failed")
+
+    # Stream file as it grows
+    async def stream_file():
+        with open(output_path, 'rb') as f:
+            while True:
+                chunk = f.read(65536)  # 64KB chunks
+                if chunk:
+                    yield chunk
+                elif proc.returncode is not None:
+                    # Download finished, send remaining
+                    remaining = f.read()
+                    if remaining:
+                        yield remaining
+                    break
+                else:
+                    await asyncio.sleep(0.1)
+
+    return StreamingResponse(
+        stream_file(),
+        media_type="audio/mpeg",
+        headers={"Cache-Control": "no-cache"},
+    )
 
 
 @app.get("/stream_url")
