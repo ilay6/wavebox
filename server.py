@@ -1,13 +1,13 @@
 """
-WaveBox local music server
-Searches and streams audio via yt-dlp (SoundCloud)
+WaveBox music server — searches and streams SoundCloud via yt-dlp
 Run: /opt/homebrew/bin/python3.11 server.py
 """
 
 import os
 import asyncio
-import tempfile
 import json
+import hashlib
+import tempfile
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
@@ -23,97 +23,92 @@ app.add_middleware(
 )
 
 YT_DLP = os.environ.get("YTDLP_PATH", "/opt/homebrew/bin/yt-dlp")
-CACHE_DIR = os.path.join(tempfile.gettempdir(), "wavebox_cache")
+CACHE_DIR = os.path.join(tempfile.gettempdir(), "wavebox_v2")
 os.makedirs(CACHE_DIR, exist_ok=True)
 
-# Track ongoing preload tasks
-_preload_tasks: dict = {}
+_preload_tasks = {}
 
 
-async def run_ytdlp(*args, timeout=30):
+def cache_key(url: str) -> str:
+    return hashlib.md5(url.encode()).hexdigest()
+
+
+def find_file(key: str):
+    for ext in ["opus", "mp3", "m4a", "webm", "ogg", "aac"]:
+        p = os.path.join(CACHE_DIR, f"{key}.{ext}")
+        if os.path.exists(p) and os.path.getsize(p) > 1024:
+            return p
+    return None
+
+
+async def ytdlp(*args, timeout=30):
     proc = await asyncio.create_subprocess_exec(
         YT_DLP, *args,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
     try:
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-        return proc.returncode, stdout.decode(errors="ignore"), stderr.decode(errors="ignore")
+        out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        return proc.returncode, out.decode(errors="ignore"), err.decode(errors="ignore")
     except asyncio.TimeoutError:
         proc.kill()
         return -1, "", "timeout"
 
 
-async def _download_to_cache(url: str, cache_key: str):
-    """Download a track and store in cache directory."""
-    output_template = os.path.join(CACHE_DIR, f"{cache_key}.%(ext)s")
-    await run_ytdlp(
-        url,
-        "--format", "bestaudio/best",
-        "--output", output_template,
-        "--no-playlist",
-        "--no-part",
-        "--no-warnings",
-        "--quiet",
-        timeout=120,
-    )
-
-
-def find_cached(cache_key: str):
-    """Return cached file path if exists, else None."""
-    for ext in ["mp3", "m4a", "webm", "opus", "aac", "ogg"]:
-        path = os.path.join(CACHE_DIR, f"{cache_key}.{ext}")
-        if os.path.exists(path):
-            return path
-    return None
-
-
 @app.get("/health")
 async def health():
-    return {"status": "ok", "ytdlp": YT_DLP}
+    return {"status": "ok"}
+
+
+@app.get("/stream_url")
+async def stream_url(url: str):
+    """Return the direct HLS stream URL — fast (~1-2s), for browser HLS.js playback."""
+    code, out, err = await ytdlp(
+        url,
+        "--get-url", "--format", "bestaudio/best",
+        "--no-playlist", "--no-warnings", "--quiet",
+        timeout=12,
+    )
+    if code != 0 or not out.strip():
+        raise HTTPException(404, f"Cannot resolve stream URL: {err[:80]}")
+    stream = out.strip().split("\n")[0]
+    return {"url": stream}
 
 
 @app.get("/search")
 async def search(q: str, limit: int = 10):
-    """Search tracks on SoundCloud."""
-    code, stdout, stderr = await run_ytdlp(
+    code, out, err = await ytdlp(
         f"scsearch{limit}:{q}",
-        "--dump-json",
-        "--flat-playlist",
-        "--no-warnings",
-        "--quiet",
+        "--dump-json", "--flat-playlist",
+        "--no-warnings", "--quiet",
         timeout=25,
     )
     if code != 0:
-        return JSONResponse({"tracks": [], "error": stderr[:200]})
+        return {"tracks": [], "error": err[:100]}
 
     tracks = []
-    for line in stdout.strip().split("\n"):
-        if not line:
+    for line in out.strip().split("\n"):
+        if not line.strip():
             continue
         try:
             d = json.loads(line)
             artwork = None
-            thumbs = d.get("thumbnails") or []
-            for tid in ["t300x300", "t500x500", "crop", "large", "t67x67"]:
-                for t in thumbs:
-                    if t.get("id") == tid:
-                        artwork = t["url"]
-                        break
-                if artwork:
+            for t in (d.get("thumbnails") or []):
+                if t.get("id") in ["t300x300", "t500x500"]:
+                    artwork = t["url"]
                     break
-            if not artwork and thumbs:
-                artwork = thumbs[-1].get("url")
+            if not artwork:
+                thumbs = d.get("thumbnails") or []
+                if thumbs:
+                    artwork = thumbs[-1].get("url")
 
             tracks.append({
-                "id": d.get("id", ""),
+                "id": str(d.get("id", "")),
                 "title": d.get("title", "Unknown"),
                 "user": {"username": d.get("uploader") or d.get("channel") or "Unknown"},
                 "duration": int((d.get("duration") or 0) * 1000),
                 "artwork_url": artwork,
-                "url": d.get("url") or d.get("webpage_url"),
-                "playback_count": d.get("view_count", 0),
-                "genre": d.get("genre", ""),
+                "url": d.get("webpage_url") or d.get("url"),
             })
         except Exception:
             continue
@@ -122,107 +117,101 @@ async def search(q: str, limit: int = 10):
 
 @app.get("/stream")
 async def stream(url: str):
-    """Stream audio — serves cached file instantly, or streams while downloading."""
-    cache_key = str(abs(hash(url)))
+    key = cache_key(url)
+    cached = find_file(key)
 
     # Serve from cache instantly
-    cached = find_cached(cache_key)
     if cached:
-        return FileResponse(cached, media_type="audio/mpeg",
-                            headers={"Accept-Ranges": "bytes", "Cache-Control": "public, max-age=3600"})
+        return FileResponse(
+            cached,
+            media_type="audio/ogg",
+            headers={"Accept-Ranges": "bytes", "Cache-Control": "public, max-age=86400"},
+        )
 
-    # Start download in background
-    output_template = os.path.join(CACHE_DIR, f"{cache_key}.%(ext)s")
-
-    # Run yt-dlp as subprocess and stream output file as it grows
+    # Download + stream simultaneously
+    out_tmpl = os.path.join(CACHE_DIR, f"{key}.%(ext)s")
     proc = await asyncio.create_subprocess_exec(
         YT_DLP, url,
         "--format", "bestaudio/best",
-        "--output", output_template,
-        "--no-playlist", "--no-part", "--no-warnings", "--quiet",
+        "--output", out_tmpl,
+        "--no-playlist", "--no-part",
+        "--no-warnings", "--quiet",
         stdout=asyncio.subprocess.DEVNULL,
         stderr=asyncio.subprocess.DEVNULL,
     )
 
-    # Wait for file to appear (up to 10s)
-    output_path = None
-    for _ in range(100):
+    # Wait up to 15s for file to appear and have some data
+    file_path = None
+    for _ in range(150):
         await asyncio.sleep(0.1)
-        output_path = find_cached(cache_key)
-        if output_path:
+        f = find_file(key)
+        if f:
+            file_path = f
             break
 
-    if not output_path:
+    if not file_path:
         # Wait for full download
         try:
             await asyncio.wait_for(proc.wait(), timeout=120)
         except asyncio.TimeoutError:
             proc.kill()
-        output_path = find_cached(cache_key)
+            raise HTTPException(404, "Download timeout")
+        file_path = find_file(key)
 
-    if not output_path:
-        raise HTTPException(status_code=404, detail="Download failed")
+    if not file_path:
+        raise HTTPException(404, "Download failed")
 
-    # Stream file as it grows
-    async def stream_file():
-        with open(output_path, 'rb') as f:
+    # Stream file while it's being written
+    async def generate():
+        with open(file_path, "rb") as f:
             while True:
-                chunk = f.read(65536)  # 64KB chunks
+                chunk = f.read(32768)
                 if chunk:
                     yield chunk
-                elif proc.returncode is not None:
-                    # Download finished, send remaining
-                    remaining = f.read()
-                    if remaining:
-                        yield remaining
-                    break
                 else:
-                    await asyncio.sleep(0.1)
+                    if proc.returncode is not None:
+                        # Finished — send any remaining bytes
+                        rest = f.read()
+                        if rest:
+                            yield rest
+                        break
+                    await asyncio.sleep(0.05)
 
     return StreamingResponse(
-        stream_file(),
-        media_type="audio/mpeg",
+        generate(),
+        media_type="audio/ogg",
         headers={"Cache-Control": "no-cache"},
     )
 
 
-@app.get("/stream_url")
-async def stream_url(url: str):
-    """Try to get a direct stream URL quickly (faster than full download)."""
-    code, stdout, _ = await run_ytdlp(
-        url, "--get-url", "--format", "bestaudio/best",
-        "--no-warnings", "--quiet", timeout=10,
-    )
-    if code == 0 and stdout.strip():
-        direct = stdout.strip().split("\n")[0]
-        return {"url": direct}
-    return {"url": None}
-
-
 @app.get("/preload")
 async def preload(url: str):
-    """Start background download for instant future /stream response."""
-    cache_key = str(abs(hash(url)))
-
-    # Already cached?
-    if find_cached(cache_key):
+    key = cache_key(url)
+    if find_file(key):
         return {"status": "cached"}
 
     # Prune finished tasks
-    done = [k for k, t in _preload_tasks.items() if t.done()]
-    for k in done:
-        del _preload_tasks[k]
+    for k in list(_preload_tasks.keys()):
+        if _preload_tasks[k].done():
+            del _preload_tasks[k]
 
-    # Already downloading?
-    if cache_key in _preload_tasks:
+    if key in _preload_tasks:
         return {"status": "downloading"}
 
-    # Start background download
-    task = asyncio.create_task(_download_to_cache(url, cache_key))
-    _preload_tasks[cache_key] = task
+    async def _dl():
+        out_tmpl = os.path.join(CACHE_DIR, f"{key}.%(ext)s")
+        await ytdlp(url,
+            "--format", "bestaudio/best",
+            "--output", out_tmpl,
+            "--no-playlist", "--no-part",
+            "--no-warnings", "--quiet",
+            timeout=120,
+        )
+
+    _preload_tasks[key] = asyncio.create_task(_dl())
     return {"status": "started"}
 
 
 if __name__ == "__main__":
-    print("🎵 WaveBox server starting on http://localhost:8888")
+    print("🎵 WaveBox server → http://localhost:8888")
     uvicorn.run(app, host="0.0.0.0", port=8888)

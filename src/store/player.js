@@ -13,7 +13,7 @@ async function getAudioUri(trackUrl) {
   try {
     // Try to get direct URL quickly (no download needed)
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 8000);
+    const timer = setTimeout(() => controller.abort(), 15000);
     const res = await fetch(
       `${SERVER}/stream_url?url=${encodeURIComponent(trackUrl)}`,
       { signal: controller.signal }
@@ -37,6 +37,7 @@ function preloadTrack(track) {
 class WebAudio {
   constructor() {
     this.audio = null;
+    this.hls = null;
     this.ctx = null;
     this.source = null;
     this.filters = [];   // 5 BiquadFilterNode
@@ -47,10 +48,7 @@ class WebAudio {
   _buildGraph() {
     if (!this.audio || !this.ctx) return;
     try { this.source?.disconnect(); } catch {}
-
     this.source = this.ctx.createMediaElementSource(this.audio);
-
-    // 5-band EQ: Bass(60) Low(250) Mid(1k) High(4k) Air(14k)
     const BANDS = [
       { type: 'lowshelf',  freq: 60    },
       { type: 'peaking',   freq: 250   },
@@ -58,7 +56,6 @@ class WebAudio {
       { type: 'peaking',   freq: 4000  },
       { type: 'highshelf', freq: 14000 },
     ];
-
     this.filters = BANDS.map(({ type, freq }, i) => {
       const f = this.ctx.createBiquadFilter();
       f.type = type;
@@ -67,7 +64,6 @@ class WebAudio {
       f.Q.value = 1.0;
       return f;
     });
-
     let node = this.source;
     for (const f of this.filters) { node.connect(f); node = f; }
     node.connect(this.ctx.destination);
@@ -78,19 +74,7 @@ class WebAudio {
     if (this.filters[index]) this.filters[index].gain.value = gainDb;
   }
 
-  async load(uri) {
-    this.unload();
-
-    // Init AudioContext lazily
-    if (!this.ctx) {
-      const AC = window.AudioContext || window.webkitAudioContext;
-      if (AC) this.ctx = new AC();
-    }
-
-    this.audio = new Audio();
-    this.audio.preload = 'auto';
-    this.audio.src = uri;
-
+  _attachEvents() {
     this.audio.ontimeupdate = () => {
       if (!this.audio) return;
       this.onStatus?.({
@@ -101,27 +85,65 @@ class WebAudio {
         didJustFinish: false,
       });
     };
-
     this.audio.onended = () => {
       this.onStatus?.({ isLoaded: true, isPlaying: false, positionMillis: 0, durationMillis: 0, didJustFinish: true });
     };
-
     this.audio.onerror = (e) => {
       console.log('Audio error:', this.audio?.error?.message || e);
       this.onStatus?.({ isLoaded: false, error: true });
     };
+  }
 
-    // Wait for enough data to play
-    return new Promise((resolve) => {
-      const done = () => { clearTimeout(timer); resolve(); };
-      const timer = setTimeout(done, 5000); // give up waiting, try to play anyway
-      this.audio.oncanplay = done;
-      this.audio.load();
-    });
+  async load(uri) {
+    this.unload();
+
+    if (!this.ctx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (AC) this.ctx = new AC();
+    }
+
+    this.audio = new Audio();
+    this.audio.preload = 'auto';
+    this._attachEvents();
+
+    const isHLS = uri.includes('.m3u8') || uri.includes('playlist') || uri.includes('sndcdn.com');
+
+    if (isHLS) {
+      // Use HLS.js for HLS streams (SoundCloud)
+      const Hls = (await import('hls.js')).default;
+      if (Hls.isSupported()) {
+        this.hls = new Hls({ enableWorker: false, lowLatencyMode: false });
+        this.hls.loadSource(uri);
+        this.hls.attachMedia(this.audio);
+        await new Promise((resolve) => {
+          const timer = setTimeout(resolve, 8000);
+          this.hls.on(Hls.Events.MANIFEST_PARSED, () => { clearTimeout(timer); resolve(); });
+          this.hls.on(Hls.Events.ERROR, (_, d) => {
+            if (d.fatal) { clearTimeout(timer); resolve(); }
+          });
+        });
+      } else if (this.audio.canPlayType('application/vnd.apple.mpegurl')) {
+        // Safari native HLS
+        this.audio.src = uri;
+        await new Promise((resolve) => {
+          const timer = setTimeout(resolve, 5000);
+          this.audio.oncanplay = () => { clearTimeout(timer); resolve(); };
+          this.audio.load();
+        });
+      }
+    } else {
+      this.audio.src = uri;
+      await new Promise((resolve) => {
+        const timer = setTimeout(resolve, 5000);
+        this.audio.oncanplay = () => { clearTimeout(timer); resolve(); };
+        this.audio.load();
+      });
+    }
   }
 
   async play() {
     if (!this.audio) return;
+    if (this.ctx?.state === 'suspended') await this.ctx.resume().catch(() => {});
     return this.audio.play().catch(e => {
       console.log('play() blocked:', e.message);
     });
@@ -134,6 +156,10 @@ class WebAudio {
   }
 
   unload() {
+    if (this.hls) {
+      try { this.hls.destroy(); } catch {}
+      this.hls = null;
+    }
     if (this.audio) {
       this.audio.pause();
       try { this.source?.disconnect(); } catch {}
