@@ -39,7 +39,40 @@ function unlockAudio() {
   } catch {}
 }
 
-// Fire-and-forget preload (server caches for instant next play)
+// ── URL cache: prefetch HLS URLs so playback starts instantly ─────────────────
+const _urlCache = new Map(); // trackUrl → { hlsUrl, expires }
+const URL_TTL = 8 * 60 * 1000; // 8 min (SoundCloud HLS URLs last ~10 min)
+
+async function resolveHlsUrl(trackUrl) {
+  const cached = _urlCache.get(trackUrl);
+  if (cached && Date.now() < cached.expires) return cached.hlsUrl;
+  try {
+    const res = await fetch(`${SERVER}/stream_url?url=${encodeURIComponent(trackUrl)}`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.url) {
+        _urlCache.set(trackUrl, { hlsUrl: data.url, expires: Date.now() + URL_TTL });
+        return data.url;
+      }
+    }
+  } catch {}
+  return null;
+}
+
+export function prefetchTracks(tracks) {
+  // Prefetch HLS URLs for the given tracks in background — makes playback instant
+  if (Platform.OS !== 'web' || !tracks?.length) return;
+  tracks.slice(0, 6).forEach(t => { if (t?.url) resolveHlsUrl(t.url); });
+}
+
+// Get the best playable URI for a track
+async function getAudioUri(trackUrl) {
+  const hlsUrl = await resolveHlsUrl(trackUrl);
+  if (hlsUrl) return hlsUrl;
+  return `${SERVER}/stream?url=${encodeURIComponent(trackUrl)}`;
+}
+
+// Fire-and-forget preload (server caches download for native)
 function preloadTrack(track) {
   if (!track?.url) return;
   fetch(`${SERVER}/preload?url=${encodeURIComponent(track.url)}`).catch(() => {});
@@ -50,17 +83,29 @@ class WebAudio {
   constructor() {
     this.audio = null;
     this.hls = null;
-    this.ctx = null;
+    this.ctx = null;   // AudioContext — kept alive across track switches
     this.source = null;
-    this.filters = [];   // 5 BiquadFilterNode
-    this.eqGains = [0, 0, 0, 0, 0];
+    this.filters = [];
+    this.eqGains = [0, 0, 0, 0, 0]; // persist across tracks
     this.onStatus = null;
+  }
+
+  _initCtx() {
+    if (this.ctx) return;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (AC) { this.ctx = new AC(); this.ctx.resume().catch(() => {}); }
   }
 
   _buildGraph() {
     if (!this.audio || !this.ctx) return;
     try { this.source?.disconnect(); } catch {}
-    this.source = this.ctx.createMediaElementSource(this.audio);
+    try {
+      this.source = this.ctx.createMediaElementSource(this.audio);
+    } catch (e) {
+      // Already connected or CORS — skip EQ silently
+      console.log('EQ graph skipped:', e.message);
+      return;
+    }
     const BANDS = [
       { type: 'lowshelf',  freq: 60    },
       { type: 'peaking',   freq: 250   },
@@ -72,7 +117,7 @@ class WebAudio {
       const f = this.ctx.createBiquadFilter();
       f.type = type;
       f.frequency.value = freq;
-      f.gain.value = this.eqGains[i];
+      f.gain.value = this.eqGains[i]; // restore current EQ settings
       f.Q.value = 1.0;
       return f;
     });
@@ -102,50 +147,46 @@ class WebAudio {
     };
     this.audio.onerror = (e) => {
       console.log('Audio error:', this.audio?.error?.message || e);
-      this.onStatus?.({ isLoaded: false, error: true });
     };
   }
 
   async load(uri) {
     this.unload();
-
-    if (!this.ctx) {
-      const AC = window.AudioContext || window.webkitAudioContext;
-      if (AC) this.ctx = new AC();
-    }
+    this._initCtx();
 
     this.audio = new Audio();
     this.audio.preload = 'auto';
     this._attachEvents();
 
-    const isHLS = uri.includes('.m3u8') || uri.includes('playlist') || uri.includes('sndcdn.com');
+    const isHLS = uri.includes('.m3u8') || uri.includes('sndcdn.com');
 
-    if (isHLS) {
-      // Use HLS.js for HLS streams (SoundCloud)
-      if (Hls.isSupported()) {
-        this.hls = new Hls({ enableWorker: false, lowLatencyMode: false });
-        this.hls.loadSource(uri);
-        this.hls.attachMedia(this.audio);
-        await new Promise((resolve) => {
-          const timer = setTimeout(resolve, 8000);
-          this.hls.on(Hls.Events.MANIFEST_PARSED, () => { clearTimeout(timer); resolve(); });
-          this.hls.on(Hls.Events.ERROR, (_, d) => {
-            if (d.fatal) { clearTimeout(timer); resolve(); }
-          });
-        });
-      } else if (this.audio.canPlayType('application/vnd.apple.mpegurl')) {
-        // Safari native HLS
-        this.audio.src = uri;
-        await new Promise((resolve) => {
-          const timer = setTimeout(resolve, 5000);
-          this.audio.oncanplay = () => { clearTimeout(timer); resolve(); };
-          this.audio.load();
-        });
-      }
-    } else {
-      this.audio.src = uri;
+    if (isHLS && Hls.isSupported()) {
+      this.hls = new Hls({ enableWorker: false, lowLatencyMode: false });
+      this.hls.loadSource(uri);
+      this.hls.attachMedia(this.audio);
+      // Build EQ graph after attaching (MSE-fed audio works with Web Audio API)
+      this._buildGraph();
       await new Promise((resolve) => {
-        const timer = setTimeout(resolve, 5000);
+        const timer = setTimeout(resolve, 8000);
+        this.hls.on(Hls.Events.MANIFEST_PARSED, () => { clearTimeout(timer); resolve(); });
+        this.hls.on(Hls.Events.ERROR, (_, d) => { if (d.fatal) { clearTimeout(timer); resolve(); } });
+      });
+    } else if (this.audio.canPlayType('application/vnd.apple.mpegurl')) {
+      // Safari: native HLS
+      this.audio.src = uri;
+      this._buildGraph();
+      await new Promise((resolve) => {
+        const timer = setTimeout(resolve, 8000);
+        this.audio.oncanplay = () => { clearTimeout(timer); resolve(); };
+        this.audio.load();
+      });
+    } else {
+      // Direct MP3/OGG (fallback stream from server)
+      this.audio.crossOrigin = 'anonymous';
+      this.audio.src = uri;
+      this._buildGraph();
+      await new Promise((resolve) => {
+        const timer = setTimeout(resolve, 8000);
         this.audio.oncanplay = () => { clearTimeout(timer); resolve(); };
         this.audio.load();
       });
@@ -155,9 +196,7 @@ class WebAudio {
   async play() {
     if (!this.audio) return;
     if (this.ctx?.state === 'suspended') await this.ctx.resume().catch(() => {});
-    return this.audio.play().catch(e => {
-      console.log('play() blocked:', e.message);
-    });
+    return this.audio.play().catch(e => console.log('play() blocked:', e.message));
   }
 
   async pause() { this.audio?.pause(); }
@@ -167,18 +206,17 @@ class WebAudio {
   }
 
   unload() {
-    if (this.hls) {
-      try { this.hls.destroy(); } catch {}
-      this.hls = null;
-    }
+    if (this.hls) { try { this.hls.destroy(); } catch {} this.hls = null; }
     if (this.audio) {
       this.audio.pause();
       try { this.source?.disconnect(); } catch {}
       this.source = null;
       this.filters = [];
+      // eqGains intentionally kept — persists to next track
       this.audio.src = '';
       this.audio = null;
     }
+    // ctx intentionally kept alive — avoids AudioContext limit
   }
 
   getStatus() {
@@ -395,7 +433,7 @@ export function PlayerProvider({ children }) {
       currentTrack, queue, isPlaying, progress, duration, loading, error,
       liked, eqGains,
       playTrack, togglePlay, toggleLike, playNext, playPrev, seekTo,
-      setEqBand, setEqPreset,
+      setEqBand, setEqPreset, prefetchTracks,
     }}>
       {children}
     </PlayerContext.Provider>

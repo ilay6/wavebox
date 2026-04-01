@@ -137,7 +137,7 @@ export default function HomeScreen({ navigation }) {
   const [loadingTrending, setLoadingTrending] = useState(true);
   const loading = loadingNew || loadingRu || loadingChill || loadingTrending;
   const [greeting, setGreeting] = useState('');
-  const { playTrack } = usePlayer();
+  const { playTrack, prefetchTracks } = usePlayer();
   const scrollY = useRef(new Animated.Value(0)).current;
   const headerOpacity = scrollY.interpolate({ inputRange: [0, 80], outputRange: [0, 1], extrapolate: 'clamp' });
 
@@ -152,10 +152,10 @@ export default function HomeScreen({ navigation }) {
 
   async function loadAll() {
     // Load each section independently so they appear as soon as ready
-    getNewReleases(10).then(n => { setNewTracks(n); setLoadingNew(false); });
-    getRussianTracks(10).then(r => { setRussianTracks(r); setLoadingRu(false); });
-    getChillTracks(10).then(c => { setChillTracks(c); setLoadingChill(false); });
-    getTrending(15).then(t => { setTrending(t); setGenreTracks(t); setLoadingTrending(false); });
+    getNewReleases(10).then(n => { setNewTracks(n); setLoadingNew(false); prefetchTracks(n); });
+    getRussianTracks(10).then(r => { setRussianTracks(r); setLoadingRu(false); prefetchTracks(r); });
+    getChillTracks(10).then(c => { setChillTracks(c); setLoadingChill(false); prefetchTracks(c); });
+    getTrending(15).then(t => { setTrending(t); setGenreTracks(t); setLoadingTrending(false); prefetchTracks(t); });
   }
 
   async function handleGenre(g) {
