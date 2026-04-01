@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useRef, useCallback, useEffect } from 'react';
 import { Platform } from 'react-native';
+import Hls from 'hls.js';
 
 const PlayerContext = createContext(null);
 
@@ -25,6 +26,17 @@ async function getAudioUri(trackUrl) {
   } catch {}
   // Fallback: server downloads file and serves it
   return `${SERVER}/stream?url=${encodeURIComponent(trackUrl)}`;
+}
+
+// Unlock browser autoplay policy — must be called synchronously in a user gesture
+let _audioUnlocked = false;
+function unlockAudio() {
+  if (_audioUnlocked || typeof window === 'undefined') return;
+  _audioUnlocked = true;
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (AC) { const ctx = new AC(); ctx.resume().then(() => ctx.close()).catch(() => {}); }
+  } catch {}
 }
 
 // Fire-and-forget preload (server caches for instant next play)
@@ -110,7 +122,6 @@ class WebAudio {
 
     if (isHLS) {
       // Use HLS.js for HLS streams (SoundCloud)
-      const Hls = (await import('hls.js')).default;
       if (Hls.isSupported()) {
         this.hls = new Hls({ enableWorker: false, lowLatencyMode: false });
         this.hls.loadSource(uri);
@@ -291,6 +302,7 @@ export function PlayerProvider({ children }) {
     }
 
     try {
+      unlockAudio(); // must be synchronous — unlocks autoplay before any awaits
       const engine = getEngine();
       engine.unload();
 

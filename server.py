@@ -62,17 +62,25 @@ async def health():
 
 @app.get("/stream_url")
 async def stream_url(url: str):
-    """Return the direct HLS stream URL — fast (~1-2s), for browser HLS.js playback."""
+    """Return HLS playlist URL for MP3 format — resolves in ~1.5s via yt-dlp."""
     code, out, err = await ytdlp(
         url,
-        "--get-url", "--format", "bestaudio/best",
+        "--get-url", "--format", "hls_mp3_0_1",
         "--no-playlist", "--no-warnings", "--quiet",
-        timeout=12,
+        timeout=15,
     )
     if code != 0 or not out.strip():
-        raise HTTPException(404, f"Cannot resolve stream URL: {err[:80]}")
+        # Fallback: try any available format
+        code, out, err = await ytdlp(
+            url,
+            "--get-url", "--format", "bestaudio/best",
+            "--no-playlist", "--no-warnings", "--quiet",
+            timeout=15,
+        )
+    if code != 0 or not out.strip():
+        raise HTTPException(404, f"Cannot resolve stream URL")
     stream = out.strip().split("\n")[0]
-    return {"url": stream}
+    return {"url": stream, "format": "hls"}
 
 
 @app.get("/search")
