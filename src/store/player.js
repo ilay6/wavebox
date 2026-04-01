@@ -64,52 +64,59 @@ class WebAudio {
   constructor() {
     this.audio = null;
     this.hls = null;
-    this.ctx = null;   // AudioContext — kept alive across track switches
+    this.ctx = null;
     this.source = null;
     this.filters = [];
     this.eqGains = [0, 0, 0, 0, 0]; // persist across tracks
     this.onStatus = null;
+    this._eqConnected = false;
   }
 
-  _initCtx() {
+  // ── Lazy EQ graph: only connect Web Audio when EQ is non-flat ──────────────
+  _ensureCtx() {
     if (this.ctx) return;
     const AC = window.AudioContext || window.webkitAudioContext;
     if (AC) { this.ctx = new AC(); this.ctx.resume().catch(() => {}); }
   }
 
-  _buildGraph() {
-    if (!this.audio || !this.ctx) return;
-    try { this.source?.disconnect(); } catch {}
+  _connectEq() {
+    if (!this.audio || !this.ctx || this._eqConnected) return;
     try {
       this.source = this.ctx.createMediaElementSource(this.audio);
-    } catch (e) {
-      // Already connected or CORS — skip EQ silently
-      console.log('EQ graph skipped:', e.message);
-      return;
+      this._eqConnected = true;
+    } catch {
+      return; // already connected or unsupported — audio plays via default route
     }
     const BANDS = [
-      { type: 'lowshelf',  freq: 60    },
-      { type: 'peaking',   freq: 250   },
-      { type: 'peaking',   freq: 1000  },
-      { type: 'peaking',   freq: 4000  },
+      { type: 'lowshelf',  freq: 60 },
+      { type: 'peaking',   freq: 250 },
+      { type: 'peaking',   freq: 1000 },
+      { type: 'peaking',   freq: 4000 },
       { type: 'highshelf', freq: 14000 },
     ];
     this.filters = BANDS.map(({ type, freq }, i) => {
       const f = this.ctx.createBiquadFilter();
-      f.type = type;
-      f.frequency.value = freq;
-      f.gain.value = this.eqGains[i]; // restore current EQ settings
-      f.Q.value = 1.0;
+      f.type = type; f.frequency.value = freq;
+      f.gain.value = this.eqGains[i]; f.Q.value = 1.0;
       return f;
     });
     let node = this.source;
     for (const f of this.filters) { node.connect(f); node = f; }
-    node.connect(this.ctx.destination);
+    // Always connect to destination — if anything above fails, still connect source
+    try { node.connect(this.ctx.destination); } catch {
+      try { this.source.connect(this.ctx.destination); } catch {}
+    }
   }
 
   setEqBand(index, gainDb) {
     this.eqGains[index] = gainDb;
-    if (this.filters[index]) this.filters[index].gain.value = gainDb;
+    if (this._eqConnected && this.filters[index]) {
+      this.filters[index].gain.value = gainDb;
+    } else if (this.eqGains.some(g => g !== 0)) {
+      // User changed EQ — connect Web Audio now
+      this._ensureCtx();
+      this._connectEq();
+    }
   }
 
   _attachEvents() {
@@ -133,11 +140,15 @@ class WebAudio {
 
   async load(uri) {
     this.unload();
-    this._initCtx();
 
     this.audio = new Audio();
     this.audio.preload = 'auto';
     this._attachEvents();
+
+    // If EQ was already set, connect Web Audio now
+    if (this.eqGains.some(g => g !== 0)) {
+      this._ensureCtx();
+    }
 
     const isHLS = uri.includes('.m3u8') || uri.includes('sndcdn.com');
 
@@ -145,27 +156,24 @@ class WebAudio {
       this.hls = new Hls({ enableWorker: false, lowLatencyMode: false });
       this.hls.loadSource(uri);
       this.hls.attachMedia(this.audio);
-      // Build EQ graph after attaching (MSE-fed audio works with Web Audio API)
-      this._buildGraph();
+      if (this.ctx) this._connectEq(); // re-apply EQ to new audio element
       await new Promise((resolve) => {
         const timer = setTimeout(resolve, 8000);
         this.hls.on(Hls.Events.MANIFEST_PARSED, () => { clearTimeout(timer); resolve(); });
         this.hls.on(Hls.Events.ERROR, (_, d) => { if (d.fatal) { clearTimeout(timer); resolve(); } });
       });
     } else if (this.audio.canPlayType('application/vnd.apple.mpegurl')) {
-      // Safari: native HLS
       this.audio.src = uri;
-      this._buildGraph();
+      if (this.ctx) this._connectEq();
       await new Promise((resolve) => {
         const timer = setTimeout(resolve, 8000);
         this.audio.oncanplay = () => { clearTimeout(timer); resolve(); };
         this.audio.load();
       });
     } else {
-      // Direct MP3/OGG (fallback stream from server)
       this.audio.crossOrigin = 'anonymous';
       this.audio.src = uri;
-      this._buildGraph();
+      if (this.ctx) this._connectEq();
       await new Promise((resolve) => {
         const timer = setTimeout(resolve, 8000);
         this.audio.oncanplay = () => { clearTimeout(timer); resolve(); };
@@ -190,14 +198,16 @@ class WebAudio {
     if (this.hls) { try { this.hls.destroy(); } catch {} this.hls = null; }
     if (this.audio) {
       this.audio.pause();
-      try { this.source?.disconnect(); } catch {}
-      this.source = null;
-      this.filters = [];
-      // eqGains intentionally kept — persists to next track
+      if (this._eqConnected) {
+        try { this.source?.disconnect(); } catch {}
+        this.source = null;
+        this.filters = [];
+        this._eqConnected = false;
+      }
       this.audio.src = '';
       this.audio = null;
     }
-    // ctx intentionally kept alive — avoids AudioContext limit
+    // ctx kept alive; eqGains kept alive
   }
 
   getStatus() {
