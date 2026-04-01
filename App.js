@@ -1,7 +1,7 @@
 import 'react-native-gesture-handler';
 import { StatusBar } from 'expo-status-bar';
 import { useState, createContext, useContext } from 'react';
-import { StyleSheet, View, TouchableOpacity, Platform } from 'react-native';
+import { StyleSheet, View, TouchableOpacity } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
@@ -54,25 +54,22 @@ function TabBar({ state, navigation }) {
   );
 }
 
-// Full-screen overlay player (works on web + native)
+// Centered card player overlay
 function PlayerOverlay({ visible, onClose }) {
   if (!visible) return null;
 
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
-      {/* Tap backdrop to close */}
+      {/* Backdrop */}
       <TouchableOpacity
-        style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.5)' }]}
+        style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.6)' }]}
         onPress={onClose}
         activeOpacity={1}
+        pointerEvents="auto"
       />
-      {/* Player sheet — bottom 88% */}
-      <View style={styles.sheet}>
-        {/* Handle bar */}
-        <TouchableOpacity onPress={onClose} style={styles.handleWrap} activeOpacity={0.7}>
-          <View style={styles.handle} />
-        </TouchableOpacity>
-        <View style={{ flex: 1 }}>
+      {/* Centered card */}
+      <View style={styles.cardWrap} pointerEvents="box-none">
+        <View pointerEvents="auto">
           <PlayerScreen onClose={onClose} />
         </View>
       </View>
@@ -137,23 +134,11 @@ const styles = StyleSheet.create({
     shadowColor: '#fff', shadowRadius: 10, shadowOpacity: 0.2,
   },
 
-  sheet: {
-    position: 'absolute',
-    bottom: 0, left: 0, right: 0,
-    height: '75%',
-    backgroundColor: '#0a0a0a',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    overflow: 'hidden',
-    zIndex: 200,
-  },
-  handleWrap: {
+  cardWrap: {
+    ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
-    paddingTop: 10, paddingBottom: 4,
-    zIndex: 201,
-  },
-  handle: {
-    width: 40, height: 4, borderRadius: 2,
-    backgroundColor: 'rgba(255,255,255,0.25)',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+    paddingBottom: 90, // clear bottom tab bar
   },
 });
