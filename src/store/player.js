@@ -9,25 +9,6 @@ const isLocal = typeof window !== 'undefined' &&
 const SERVER = process.env.EXPO_PUBLIC_API_URL ||
   (isLocal ? 'http://localhost:8888' : 'https://wavebox-w3ft.onrender.com');
 
-// Get audio URI — tries fast direct URL first, falls back to server download
-async function getAudioUri(trackUrl) {
-  try {
-    // Try to get direct URL quickly (no download needed)
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 15000);
-    const res = await fetch(
-      `${SERVER}/stream_url?url=${encodeURIComponent(trackUrl)}`,
-      { signal: controller.signal }
-    ).finally(() => clearTimeout(timer));
-    if (res.ok) {
-      const data = await res.json();
-      if (data.url) return data.url;
-    }
-  } catch {}
-  // Fallback: server downloads file and serves it
-  return `${SERVER}/stream?url=${encodeURIComponent(trackUrl)}`;
-}
-
 // Unlock browser autoplay policy — must be called synchronously in a user gesture
 let _audioUnlocked = false;
 function unlockAudio() {
