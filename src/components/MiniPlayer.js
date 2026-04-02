@@ -1,29 +1,30 @@
 import { View, Text, TouchableOpacity, StyleSheet, Animated, Easing, Image, Platform } from 'react-native';
 import { useEffect, useRef } from 'react';
 import { Ionicons } from '@expo/vector-icons';
+
+import { colors } from '../theme';
 import { usePlayer } from '../store/player';
 
 export default function MiniPlayer({ onPress }) {
   const { currentTrack, isPlaying, togglePlay, playNext, progress, duration, loading } = usePlayer();
-  const slideAnim = useRef(new Animated.Value(100)).current;
-  const dotScale = useRef(new Animated.Value(1)).current;
+  const slideAnim = useRef(new Animated.Value(120)).current;
+  const rotateAnim = useRef(new Animated.Value(0)).current;
+  const rotateLoop = useRef(null);
 
   useEffect(() => {
     if (currentTrack) {
-      Animated.spring(slideAnim, { toValue: 0, tension: 55, friction: 12, useNativeDriver: true }).start();
+      Animated.spring(slideAnim, { toValue: 0, tension: 60, friction: 13, useNativeDriver: true }).start();
     }
   }, [!!currentTrack]);
 
-  // Пульсирующая точка
   useEffect(() => {
     if (isPlaying) {
-      Animated.loop(Animated.sequence([
-        Animated.timing(dotScale, { toValue: 1.5, duration: 700, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-        Animated.timing(dotScale, { toValue: 1, duration: 700, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-      ])).start();
+      rotateLoop.current = Animated.loop(
+        Animated.timing(rotateAnim, { toValue: 1, duration: 8000, easing: Easing.linear, useNativeDriver: true })
+      );
+      rotateLoop.current.start();
     } else {
-      dotScale.stopAnimation();
-      Animated.timing(dotScale, { toValue: 1, duration: 200, useNativeDriver: true }).start();
+      rotateLoop.current?.stop();
     }
   }, [isPlaying]);
 
@@ -31,29 +32,30 @@ export default function MiniPlayer({ onPress }) {
 
   const progressPct = duration > 0 ? Math.min(progress / duration, 1) : 0;
   const artwork = currentTrack.artwork_url;
+  const rotate = rotateAnim.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
 
   return (
     <Animated.View style={[styles.wrapper, { transform: [{ translateY: slideAnim }] }]}>
-      {/* Progress bar на самом верху */}
+      {/* Glass background */}
+      <View style={styles.glassBg} />
+      {Platform.OS === 'web' && <View style={styles.webBlur} />}
+
+      {/* Progress bar */}
       <View style={styles.progressTrack}>
         <View style={[styles.progressFill, { width: `${progressPct * 100}%` }]} />
       </View>
 
-      <TouchableOpacity style={styles.row} onPress={onPress} activeOpacity={0.92}>
-        {/* Artwork */}
-        <View style={styles.artworkWrap}>
-          {artwork ? (
-            <Image source={{ uri: artwork }} style={styles.artwork} resizeMode="cover" />
-          ) : (
-            <View style={[styles.artwork, styles.artworkFallback]}>
-              <Ionicons name="musical-note" size={18} color="rgba(255,255,255,0.3)" />
-            </View>
-          )}
-          {/* Живая точка */}
-          <Animated.View style={[styles.liveDot, { transform: [{ scale: dotScale }] }]} />
-        </View>
+      <TouchableOpacity style={styles.row} onPress={onPress} activeOpacity={0.9}>
+        {/* Rotating artwork */}
+        <Animated.View style={[styles.artWrap, { transform: [{ rotate }] }]}>
+          {artwork
+            ? <Image source={{ uri: artwork }} style={styles.artwork} resizeMode="cover" />
+            : <View style={[styles.artwork, styles.artFallback]}>
+                <Ionicons name="musical-note" size={16} color={colors.textMuted} />
+              </View>
+          }
+        </Animated.View>
 
-        {/* Info */}
         <View style={styles.info}>
           <Text style={styles.title} numberOfLines={1}>{currentTrack.title}</Text>
           <Text style={styles.artist} numberOfLines={1}>
@@ -61,21 +63,14 @@ export default function MiniPlayer({ onPress }) {
           </Text>
         </View>
 
-        {/* Controls */}
-        <TouchableOpacity
-          style={styles.ctrlBtn}
-          onPress={(e) => { e.stopPropagation?.(); togglePlay(); }}
-          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-        >
-          <Ionicons name={isPlaying ? 'pause' : 'play'} size={24} color="#fff" />
+        <TouchableOpacity style={styles.btn} onPress={e => { e.stopPropagation?.(); togglePlay(); }}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+          <Ionicons name={isPlaying ? 'pause' : 'play'} size={22} color={colors.white} />
         </TouchableOpacity>
 
-        <TouchableOpacity
-          style={styles.ctrlBtn}
-          onPress={(e) => { e.stopPropagation?.(); playNext(); }}
-          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-        >
-          <Ionicons name="play-skip-forward" size={20} color="rgba(255,255,255,0.5)" />
+        <TouchableOpacity style={styles.btn} onPress={e => { e.stopPropagation?.(); playNext(); }}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+          <Ionicons name="play-skip-forward" size={18} color={colors.textSub} />
         </TouchableOpacity>
       </TouchableOpacity>
     </Animated.View>
@@ -84,52 +79,36 @@ export default function MiniPlayer({ onPress }) {
 
 const styles = StyleSheet.create({
   wrapper: {
-    position: 'absolute',
-    bottom: 84,
-    left: 10,
-    right: 10,
-    backgroundColor: 'rgba(22,22,22,0.97)',
-    borderRadius: 18,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.5,
-    shadowRadius: 20,
-    elevation: 12,
+    position: 'absolute', bottom: 88, left: 12, right: 12,
+    borderRadius: 20, overflow: 'hidden',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)',
   },
-  progressTrack: { height: 2, backgroundColor: 'rgba(255,255,255,0.08)' },
-  progressFill: { height: '100%', backgroundColor: '#fff' },
+  glassBg: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(15,14,22,0.92)',
+  },
+  webBlur: Platform.OS === 'web' ? {
+    ...StyleSheet.absoluteFillObject,
+    backdropFilter: 'blur(24px)',
+    WebkitBackdropFilter: 'blur(24px)',
+  } : {},
+
+  progressTrack: { height: 2, backgroundColor: 'rgba(255,255,255,0.06)' },
+  progressFill: { height: '100%', backgroundColor: 'rgba(255,255,255,0.55)' },
 
   row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    gap: 12,
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 14, paddingVertical: 10, gap: 12,
   },
 
-  artworkWrap: { position: 'relative' },
-  artwork: { width: 46, height: 46, borderRadius: 10 },
-  artworkFallback: {
-    backgroundColor: 'rgba(255,255,255,0.07)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
-  },
-  liveDot: {
-    position: 'absolute',
-    bottom: -2, right: -2,
-    width: 9, height: 9, borderRadius: 5,
-    backgroundColor: '#fff',
-    borderWidth: 2, borderColor: '#161616',
-  },
+  artWrap: { width: 42, height: 42, borderRadius: 21, overflow: 'hidden',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)' },
+  artwork: { width: '100%', height: '100%' },
+  artFallback: { backgroundColor: 'rgba(255,255,255,0.06)', alignItems: 'center', justifyContent: 'center' },
 
   info: { flex: 1 },
-  title: { color: '#fff', fontSize: 14, fontWeight: '600', marginBottom: 2 },
-  artist: { color: 'rgba(255,255,255,0.45)', fontSize: 12 },
+  title:  { color: colors.white,   fontSize: 13, fontWeight: '600', marginBottom: 2 },
+  artist: { color: colors.textSub, fontSize: 11 },
 
-  ctrlBtn: { padding: 4 },
+  btn: { padding: 4 },
 });

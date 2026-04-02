@@ -1,50 +1,41 @@
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  Dimensions, Animated, Image, ActivityIndicator
+  Animated, Image, ActivityIndicator
 } from 'react-native';
 import { useState, useEffect, useRef } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import AnimatedBackground from '../components/AnimatedBackground';
 import TrackCard from '../components/TrackCard';
+import { colors } from '../theme';
 import {
   getTrending, getNewReleases, getRussianTracks,
   getChillTracks, getTopTracks
 } from '../services/soundcloud';
 import { usePlayer } from '../store/player';
 
-const { width } = Dimensions.get('window');
+const GENRES = ['All','Hip-Hop','Lo-Fi','Synthwave','Ambient','Indie','Techno','Jazz'];
 
-const GENRES = ['All', 'Hip-Hop', 'Lo-Fi', 'Synthwave', 'Ambient', 'Indie', 'Techno', 'Jazz'];
-
-// ─── Skeleton loader ──────────────────────────────────────────────────────────
+// ── Skeleton ──────────────────────────────────────────────────────────────────
 function SkeletonBox({ width: w, height: h, borderRadius = 8, style }) {
   const anim = useRef(new Animated.Value(0.3)).current;
   useEffect(() => {
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(anim, { toValue: 0.7, duration: 900, useNativeDriver: true }),
-        Animated.timing(anim, { toValue: 0.3, duration: 900, useNativeDriver: true }),
-      ])
-    ).start();
+    Animated.loop(Animated.sequence([
+      Animated.timing(anim, { toValue: 0.6, duration: 900, useNativeDriver: true }),
+      Animated.timing(anim, { toValue: 0.3, duration: 900, useNativeDriver: true }),
+    ])).start();
   }, []);
-  return (
-    <Animated.View style={[{
-      width: w, height: h, borderRadius,
-      backgroundColor: 'rgba(255,255,255,0.1)', opacity: anim,
-    }, style]} />
-  );
+  return <Animated.View style={[{ width: w, height: h, borderRadius, backgroundColor: 'rgba(255,255,255,0.07)', opacity: anim }, style]} />;
 }
 
 function HorizontalSkeleton() {
   return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false}
-      contentContainerStyle={{ paddingLeft: 16, paddingRight: 8 }}>
-      {[1, 2, 3, 4].map(i => (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingLeft: 16, paddingRight: 8 }}>
+      {[1,2,3,4].map(i => (
         <View key={i} style={{ marginRight: 12 }}>
-          <SkeletonBox width={140} height={140} borderRadius={14} />
-          <SkeletonBox width={110} height={12} borderRadius={6} style={{ marginTop: 10 }} />
-          <SkeletonBox width={70} height={10} borderRadius={6} style={{ marginTop: 6 }} />
+          <SkeletonBox width={150} height={150} borderRadius={18} />
+          <SkeletonBox width={110} height={11} borderRadius={6} style={{ marginTop: 10 }} />
+          <SkeletonBox width={70}  height={9}  borderRadius={6} style={{ marginTop: 5 }} />
         </View>
       ))}
     </ScrollView>
@@ -54,13 +45,13 @@ function HorizontalSkeleton() {
 function TrackSkeleton() {
   return (
     <View style={{ paddingHorizontal: 16 }}>
-      {[1, 2, 3, 4, 5].map(i => (
+      {[1,2,3,4,5].map(i => (
         <View key={i} style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
-          <SkeletonBox width={20} height={14} borderRadius={4} style={{ marginRight: 12 }} />
+          <SkeletonBox width={20} height={12} borderRadius={4} style={{ marginRight: 14 }} />
           <SkeletonBox width={48} height={48} borderRadius={10} style={{ marginRight: 12 }} />
           <View style={{ flex: 1 }}>
-            <SkeletonBox width="80%" height={13} borderRadius={6} />
-            <SkeletonBox width="50%" height={11} borderRadius={6} style={{ marginTop: 6 }} />
+            <SkeletonBox width="80%" height={12} borderRadius={6} />
+            <SkeletonBox width="50%" height={10} borderRadius={6} style={{ marginTop: 6 }} />
           </View>
         </View>
       ))}
@@ -68,110 +59,102 @@ function TrackSkeleton() {
   );
 }
 
-// ─── Horizontal track card ────────────────────────────────────────────────────
-function HorizontalTrackCard({ track, onPress }) {
+// ── Horizontal card — artwork fills card, title overlay ───────────────────────
+function HCard({ track, onPress }) {
   return (
-    <TouchableOpacity style={hStyles.card} onPress={onPress} activeOpacity={0.75}>
-      <View style={hStyles.artwork}>
-        {track.artwork_url ? (
-          <Image source={{ uri: track.artwork_url }} style={StyleSheet.absoluteFill} resizeMode="cover" />
-        ) : (
-          <Ionicons name="musical-note" size={28} color="rgba(255,255,255,0.15)" />
-        )}
-        <View style={hStyles.playOverlay}>
-          <Ionicons name="play" size={18} color="#fff" />
+    <TouchableOpacity style={hS.card} onPress={onPress} activeOpacity={0.8}>
+      <View style={hS.art}>
+        {track.artwork_url
+          ? <Image source={{ uri: track.artwork_url }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+          : <View style={hS.artFallback}><Ionicons name="musical-note" size={26} color={colors.textMuted} /></View>
+        }
+        {/* Bottom gradient + title */}
+        <LinearGradient colors={['transparent','rgba(6,5,14,0.92)']} style={hS.overlay}>
+          <Text style={hS.artTitle} numberOfLines={2}>{track.title}</Text>
+          <Text style={hS.artArtist} numberOfLines={1}>{track.user?.username}</Text>
+        </LinearGradient>
+        {/* Play button */}
+        <View style={hS.playBtn}>
+          <Ionicons name="play" size={13} color="#fff" />
         </View>
       </View>
-      <Text style={hStyles.title} numberOfLines={2}>{track.title}</Text>
-      <Text style={hStyles.artist} numberOfLines={1}>{track.user?.username}</Text>
     </TouchableOpacity>
   );
 }
 
-// ─── Section with optional "See all" ─────────────────────────────────────────
-function SectionHeader({ title }) {
-  return (
-    <View style={styles.sectionHeader}>
-      <Text style={styles.sectionTitle}>{title}</Text>
-    </View>
-  );
-}
-
-// ─── Animated wave bars in banner ─────────────────────────────────────────────
-function WaveBarsAnimated() {
-  const bars = Array.from({ length: 16 }, (_, i) => {
-    const anim = useRef(new Animated.Value(Math.random())).current;
+// ── Animated wave bars ────────────────────────────────────────────────────────
+function WaveBars() {
+  const bars = Array.from({ length: 14 }, (_, i) => {
+    const a = useRef(new Animated.Value(Math.random())).current;
     useEffect(() => {
-      Animated.loop(
-        Animated.sequence([
-          Animated.timing(anim, { toValue: Math.random() * 0.8 + 0.2, duration: 350 + Math.random() * 400, useNativeDriver: false }),
-          Animated.timing(anim, { toValue: Math.random() * 0.3 + 0.05, duration: 350 + Math.random() * 400, useNativeDriver: false }),
-        ])
-      ).start();
+      Animated.loop(Animated.sequence([
+        Animated.timing(a, { toValue: Math.random() * 0.85 + 0.15, duration: 350 + Math.random() * 400, useNativeDriver: false }),
+        Animated.timing(a, { toValue: Math.random() * 0.2 + 0.05,  duration: 350 + Math.random() * 400, useNativeDriver: false }),
+      ])).start();
     }, []);
-    return anim;
+    return a;
   });
   return (
-    <View style={styles.waveBars}>
-      {bars.map((anim, i) => (
-        <Animated.View key={i} style={[styles.waveBar, {
-          height: anim.interpolate({ inputRange: [0, 1], outputRange: [3, 44] }),
-          opacity: anim.interpolate({ inputRange: [0, 1], outputRange: [0.1, 0.55] }),
-        }]} />
+    <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 3, height: 42 }}>
+      {bars.map((a, i) => (
+        <Animated.View key={i} style={{
+          width: 3, borderRadius: 2, backgroundColor: colors.accent,
+          height: a.interpolate({ inputRange: [0,1], outputRange: [3, 42] }),
+          opacity: a.interpolate({ inputRange: [0,1], outputRange: [0.2, 0.7] }),
+        }} />
       ))}
     </View>
   );
 }
 
-// ─── Main screen ──────────────────────────────────────────────────────────────
+// ── Main ──────────────────────────────────────────────────────────────────────
 export default function HomeScreen({ navigation }) {
-  const [trending, setTrending] = useState([]);
-  const [newTracks, setNewTracks] = useState([]);
-  const [russianTracks, setRussianTracks] = useState([]);
-  const [chillTracks, setChillTracks] = useState([]);
+  const [trending, setTrending]       = useState([]);
+  const [newTracks, setNewTracks]     = useState([]);
+  const [russianTracks, setRussian]   = useState([]);
+  const [chillTracks, setChill]       = useState([]);
   const [genreTracks, setGenreTracks] = useState([]);
-  const [selectedGenre, setSelectedGenre] = useState('All');
-  const [loadingNew, setLoadingNew] = useState(true);
-  const [loadingRu, setLoadingRu] = useState(true);
-  const [loadingChill, setLoadingChill] = useState(true);
-  const [loadingTrending, setLoadingTrending] = useState(true);
-  const loading = loadingNew || loadingRu || loadingChill || loadingTrending;
-  const [greeting, setGreeting] = useState('');
+  const [selectedGenre, setGenre]     = useState('All');
+  const [loadingNew,   setLNew]  = useState(true);
+  const [loadingRu,    setLRu]   = useState(true);
+  const [loadingChill, setLChill]= useState(true);
+  const [loadingTrend, setLTrend]= useState(true);
+  const [greeting, setGreeting]  = useState('');
+
   const { playTrack, prefetchTracks } = usePlayer();
   const scrollY = useRef(new Animated.Value(0)).current;
   const headerOpacity = scrollY.interpolate({ inputRange: [0, 80], outputRange: [0, 1], extrapolate: 'clamp' });
 
   useEffect(() => {
     const h = new Date().getHours();
-    if (h < 6) setGreeting('Good night');
-    else if (h < 12) setGreeting('Good morning');
-    else if (h < 17) setGreeting('Good afternoon');
-    else setGreeting('Good evening');
+    setGreeting(h < 6 ? 'Good night' : h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening');
     loadAll();
   }, []);
 
-  async function loadAll() {
-    // Load each section independently so they appear as soon as ready
-    getNewReleases(10).then(n => { setNewTracks(n); setLoadingNew(false); prefetchTracks(n); });
-    getRussianTracks(10).then(r => { setRussianTracks(r); setLoadingRu(false); prefetchTracks(r); });
-    getChillTracks(10).then(c => { setChillTracks(c); setLoadingChill(false); prefetchTracks(c); });
-    getTrending(15).then(t => { setTrending(t); setGenreTracks(t); setLoadingTrending(false); prefetchTracks(t); });
+  function loadAll() {
+    getNewReleases(10).then(n   => { setNewTracks(n); setLNew(false);   prefetchTracks(n); });
+    getRussianTracks(10).then(r => { setRussian(r);   setLRu(false);    prefetchTracks(r); });
+    getChillTracks(10).then(c   => { setChill(c);     setLChill(false); prefetchTracks(c); });
+    getTrending(15).then(t      => { setTrending(t);  setGenreTracks(t); setLTrend(false); prefetchTracks(t); });
   }
 
   async function handleGenre(g) {
-    setSelectedGenre(g);
+    setGenre(g);
     const data = await getTopTracks(g === 'All' ? '' : g, 15);
     setGenreTracks(data);
   }
 
+  const loading = loadingNew || loadingRu || loadingChill || loadingTrend;
+  const heroTrack = newTracks[0] || trending[0];
+
   return (
-    <View style={styles.screen}>
+    <View style={S.screen}>
       <AnimatedBackground />
 
       {/* Sticky header */}
-      <Animated.View style={[styles.stickyHeader, { opacity: headerOpacity }]}>
-        <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(8,8,8,0.85)' }]} />
-        <Text style={styles.stickyTitle}>WaveBox</Text>
+      <Animated.View style={[S.stickyHeader, { opacity: headerOpacity }]}>
+        <View style={S.stickyBg} />
+        <Text style={S.stickyTitle}>WaveBox</Text>
       </Animated.View>
 
       <Animated.ScrollView
@@ -180,113 +163,105 @@ export default function HomeScreen({ navigation }) {
         scrollEventThrottle={16}
       >
         {/* Header */}
-        <View style={styles.header}>
+        <View style={S.header}>
           <View>
-            <Text style={styles.greeting}>{greeting}</Text>
-            <Text style={styles.heroTitle}>WaveBox</Text>
+            <Text style={S.greeting}>{greeting}</Text>
+            <Text style={S.heroTitle}>WaveBox</Text>
           </View>
-          <TouchableOpacity style={styles.avatarBtn}>
-            <View style={styles.avatar}>
-              <Text style={styles.avatarText}>U</Text>
-            </View>
-          </TouchableOpacity>
         </View>
 
-        {/* Loading notice */}
         {loading && (
-          <View style={styles.wakingBanner}>
-            <ActivityIndicator size="small" color="rgba(255,255,255,0.5)" />
-            <Text style={styles.wakingText}>Loading music... (first load may take ~30s)</Text>
+          <View style={S.loadBanner}>
+            <ActivityIndicator size="small" color={colors.accent} />
+            <Text style={S.loadText}>Loading music...</Text>
           </View>
         )}
 
-        {/* My Wave Banner */}
-        <TouchableOpacity
-          style={styles.waveBanner}
-          onPress={() => navigation.navigate('Wave')}
-          activeOpacity={0.85}
-        >
-          <View style={styles.waveBannerInner}>
-            <LinearGradient
-              colors={['rgba(255,255,255,0.1)', 'rgba(255,255,255,0.03)']}
-              start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
-              style={StyleSheet.absoluteFill}
-            />
-            <View style={styles.waveBannerBorder} />
-            <View style={styles.waveLeft}>
-              <Text style={styles.waveTag}>MY WAVE</Text>
-              <Text style={styles.waveTitle}>Personal radio</Text>
-              <Text style={styles.waveSub}>AI picks just for you</Text>
-              <View style={styles.waveActionRow}>
-                <View style={styles.wavePlayBtn}>
-                  <Ionicons name="play" size={14} color="#000" />
+        {/* Hero card */}
+        {heroTrack && (
+          <TouchableOpacity style={S.hero} onPress={() => playTrack(heroTrack, newTracks.length ? newTracks : trending)} activeOpacity={0.88}>
+            {heroTrack.artwork_url && (
+              <Image source={{ uri: heroTrack.artwork_url }} style={S.heroBg} resizeMode="cover" />
+            )}
+            <LinearGradient colors={['transparent','rgba(6,5,14,0.97)']} style={S.heroGrad}>
+              <Text style={S.heroTag}>FEATURED</Text>
+              <Text style={S.heroName} numberOfLines={2}>{heroTrack.title}</Text>
+              <Text style={S.heroArtist}>{heroTrack.user?.username}</Text>
+              <View style={S.heroPlayRow}>
+                <View style={S.heroPlayBtn}>
+                  <Ionicons name="play" size={14} color="#fff" />
                 </View>
-                <Text style={styles.waveActionText}>Play now</Text>
+                <Text style={S.heroPlayTxt}>Play now</Text>
               </View>
+            </LinearGradient>
+            <View style={S.heroBorder} />
+          </TouchableOpacity>
+        )}
+
+        {/* My Wave banner */}
+        <TouchableOpacity style={S.waveBanner} onPress={() => navigation.navigate('Wave')} activeOpacity={0.85}>
+          <View style={S.waveGlass} />
+          <View style={S.waveBannerInner}>
+            <View style={{ flex: 1 }}>
+              <Text style={S.waveTag}>MY WAVE</Text>
+              <Text style={S.waveTitle}>Personal radio</Text>
+              <Text style={S.waveSub}>AI picks just for you</Text>
             </View>
-            <WaveBarsAnimated />
+            <WaveBars />
           </View>
+          <View style={S.waveBorder} />
         </TouchableOpacity>
 
         {/* New Releases */}
-        <View style={styles.section}>
-          <SectionHeader title="New Releases" />
+        <View style={S.section}>
+          <Text style={S.sectionTitle}>New Releases</Text>
           {loadingNew ? <HorizontalSkeleton /> : (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ paddingLeft: 16, paddingRight: 8 }}>
-              {newTracks.map(t => (
-                <HorizontalTrackCard key={t.id} track={t} onPress={() => playTrack(t, newTracks)} />
-              ))}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingLeft: 16, paddingRight: 8 }}>
+              {newTracks.map(t => <HCard key={t.id} track={t} onPress={() => playTrack(t, newTracks)} />)}
             </ScrollView>
           )}
         </View>
 
         {/* Russian */}
-        <View style={styles.section}>
-          <SectionHeader title="Russian Hits" />
+        <View style={S.section}>
+          <Text style={S.sectionTitle}>Russian Hits</Text>
           {loadingRu ? <HorizontalSkeleton /> : (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ paddingLeft: 16, paddingRight: 8 }}>
-              {russianTracks.map(t => (
-                <HorizontalTrackCard key={t.id} track={t} onPress={() => playTrack(t, russianTracks)} />
-              ))}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingLeft: 16, paddingRight: 8 }}>
+              {russianTracks.map(t => <HCard key={t.id} track={t} onPress={() => playTrack(t, russianTracks)} />)}
             </ScrollView>
           )}
         </View>
 
         {/* Chill */}
-        <View style={styles.section}>
-          <SectionHeader title="Chill & Lo-Fi" />
+        <View style={S.section}>
+          <Text style={S.sectionTitle}>Chill & Lo-Fi</Text>
           {loadingChill ? <HorizontalSkeleton /> : (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ paddingLeft: 16, paddingRight: 8 }}>
-              {chillTracks.map(t => (
-                <HorizontalTrackCard key={t.id} track={t} onPress={() => playTrack(t, chillTracks)} />
-              ))}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingLeft: 16, paddingRight: 8 }}>
+              {chillTracks.map(t => <HCard key={t.id} track={t} onPress={() => playTrack(t, chillTracks)} />)}
             </ScrollView>
           )}
         </View>
 
-        {/* Genre filter + tracks */}
-        <View style={styles.section}>
-          <SectionHeader title="Trending" />
+        {/* Trending + genre filter */}
+        <View style={S.section}>
+          <Text style={S.sectionTitle}>Trending</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{ paddingLeft: 16, paddingRight: 8, marginBottom: 16 }}>
+            contentContainerStyle={{ paddingLeft: 16, paddingRight: 8, marginBottom: 12 }}>
             {GENRES.map(g => (
-              <TouchableOpacity
-                key={g}
-                style={[styles.chip, selectedGenre === g && styles.chipActive]}
-                onPress={() => handleGenre(g)}
-              >
-                <Text style={[styles.chipText, selectedGenre === g && styles.chipTextActive]}>{g}</Text>
+              <TouchableOpacity key={g} onPress={() => handleGenre(g)}
+                style={[S.chip, selectedGenre === g && S.chipActive]}>
+                {selectedGenre === g
+                  ? <View style={S.chipGrad}><Text style={S.chipTxtActive}>{g}</Text></View>
+                  : <Text style={S.chipTxt}>{g}</Text>
+                }
               </TouchableOpacity>
             ))}
           </ScrollView>
         </View>
 
-        <View style={{ marginTop: 8 }}>
-          {loadingTrending ? <TrackSkeleton /> : genreTracks.map((track, i) => (
-            <TrackCard key={track.id} track={track} index={i} showIndex onPress={() => playTrack(track, genreTracks)} />
+        <View style={{ marginTop: 4 }}>
+          {loadingTrend ? <TrackSkeleton /> : genreTracks.map((t, i) => (
+            <TrackCard key={t.id} track={t} index={i} showIndex onPress={() => playTrack(t, genreTracks)} />
           ))}
         </View>
 
@@ -296,93 +271,84 @@ export default function HomeScreen({ navigation }) {
   );
 }
 
-const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: '#080808' },
+const S = StyleSheet.create({
+  screen: { flex: 1, backgroundColor: colors.bg },
 
   stickyHeader: {
     position: 'absolute', top: 0, left: 0, right: 0, zIndex: 100,
-    height: 90, paddingTop: 50, alignItems: 'center', justifyContent: 'flex-end', paddingBottom: 12,
+    height: 88, paddingTop: 48, alignItems: 'center', justifyContent: 'flex-end', paddingBottom: 12,
   },
-  stickyTitle: { color: '#fff', fontSize: 16, fontWeight: '700', letterSpacing: 0.5 },
+  stickyBg: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(6,6,10,0.88)' },
+  stickyTitle: { color: colors.white, fontSize: 15, fontWeight: '700', letterSpacing: 0.5 },
 
-  header: {
-    paddingTop: 64, paddingHorizontal: 20, paddingBottom: 20,
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start',
-  },
-  greeting: { color: 'rgba(255,255,255,0.4)', fontSize: 13, letterSpacing: 0.5, marginBottom: 4 },
-  heroTitle: { color: '#fff', fontSize: 34, fontWeight: '800', letterSpacing: -1 },
-  avatarBtn: {},
-  avatar: {
-    width: 38, height: 38, borderRadius: 19,
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    alignItems: 'center', justifyContent: 'center',
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)',
-  },
-  avatarText: { color: '#fff', fontSize: 15, fontWeight: '600' },
+  header: { paddingTop: 62, paddingHorizontal: 20, paddingBottom: 16 },
+  greeting:  { color: colors.textMuted, fontSize: 12, letterSpacing: 0.5, marginBottom: 3 },
+  heroTitle: { color: colors.white, fontSize: 32, fontWeight: '800', letterSpacing: -1 },
 
-  wakingBanner: {
-    marginHorizontal: 16, marginBottom: 8,
-    flexDirection: 'row', alignItems: 'center', gap: 8,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10,
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)',
+  loadBanner: {
+    marginHorizontal: 16, marginBottom: 12,
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    backgroundColor: colors.glass, borderRadius: 12,
+    paddingHorizontal: 14, paddingVertical: 10,
+    borderWidth: 1, borderColor: colors.glassBorder,
   },
-  wakingText: { color: 'rgba(255,255,255,0.4)', fontSize: 12 },
+  loadText: { color: colors.textMuted, fontSize: 12 },
 
-  waveBanner: { marginHorizontal: 16, borderRadius: 20, overflow: 'hidden', marginBottom: 8 },
-  waveBannerInner: {
-    padding: 22, flexDirection: 'row', alignItems: 'center',
-    justifyContent: 'space-between', minHeight: 130,
-  },
-  waveBannerBorder: {
-    ...StyleSheet.absoluteFillObject, borderRadius: 20,
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)',
-  },
-  waveLeft: { flex: 1 },
-  waveTag: { color: 'rgba(255,255,255,0.4)', fontSize: 10, letterSpacing: 2, fontWeight: '600', marginBottom: 6 },
-  waveTitle: { color: '#fff', fontSize: 22, fontWeight: '800', letterSpacing: -0.5, marginBottom: 4 },
-  waveSub: { color: 'rgba(255,255,255,0.5)', fontSize: 13, marginBottom: 14 },
-  waveActionRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  wavePlayBtn: {
-    width: 28, height: 28, borderRadius: 14,
-    backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center',
-  },
-  waveActionText: { color: 'rgba(255,255,255,0.7)', fontSize: 13, fontWeight: '500' },
+  // Hero
+  hero: { marginHorizontal: 16, borderRadius: 22, overflow: 'hidden', height: 210, marginBottom: 14 },
+  heroBg: { ...StyleSheet.absoluteFillObject },
+  heroGrad: { ...StyleSheet.absoluteFillObject, justifyContent: 'flex-end', padding: 18 },
+  heroTag: { color: colors.accent, fontSize: 9, letterSpacing: 2.5, fontWeight: '700', marginBottom: 6 },
+  heroName: { color: colors.white, fontSize: 20, fontWeight: '800', letterSpacing: -0.4, marginBottom: 3 },
+  heroArtist: { color: 'rgba(255,255,255,0.55)', fontSize: 13, marginBottom: 12 },
+  heroPlayRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  heroPlayBtn: { width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.15)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.25)' },
+  heroPlayTxt: { color: 'rgba(255,255,255,0.65)', fontSize: 13, fontWeight: '500' },
+  heroBorder: { ...StyleSheet.absoluteFillObject, borderRadius: 22, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
 
-  waveBars: { flexDirection: 'row', alignItems: 'flex-end', gap: 3, height: 50, paddingRight: 4 },
-  waveBar: { width: 3, backgroundColor: '#fff', borderRadius: 2 },
+  // Wave banner
+  waveBanner: { marginHorizontal: 16, borderRadius: 20, overflow: 'hidden', marginBottom: 6 },
+  waveGlass:  { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(255,255,255,0.06)' },
+  waveBannerInner: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 20, minHeight: 110 },
+  waveBorder: { ...StyleSheet.absoluteFillObject, borderRadius: 20, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
+  waveTag:   { color: colors.accent, fontSize: 9, letterSpacing: 2.5, fontWeight: '700', marginBottom: 5 },
+  waveTitle: { color: colors.white, fontSize: 20, fontWeight: '800', letterSpacing: -0.4, marginBottom: 3 },
+  waveSub:   { color: colors.textSub, fontSize: 12 },
 
-  section: { marginTop: 24 },
-  sectionHeader: { paddingHorizontal: 20, marginBottom: 14 },
-  sectionTitle: { color: '#fff', fontSize: 18, fontWeight: '700', letterSpacing: -0.3 },
+  section: { marginTop: 26 },
+  sectionTitle: { color: colors.white, fontSize: 17, fontWeight: '700', letterSpacing: -0.2, paddingHorizontal: 20, marginBottom: 14 },
 
   chip: {
-    paddingHorizontal: 16, paddingVertical: 8,
-    borderRadius: 100, marginRight: 8,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)',
+    paddingHorizontal: 14, paddingVertical: 7,
+    borderRadius: 999, marginRight: 8, overflow: 'hidden',
+    backgroundColor: colors.glass,
+    borderWidth: 1, borderColor: colors.glassBorder,
   },
-  chipActive: { backgroundColor: '#fff', borderColor: '#fff' },
-  chipText: { color: 'rgba(255,255,255,0.6)', fontSize: 13, fontWeight: '500' },
-  chipTextActive: { color: '#000', fontWeight: '700' },
+  chipActive: { backgroundColor: 'rgba(255,255,255,0.12)', borderColor: 'rgba(255,255,255,0.22)' },
+  chipGrad:   { paddingHorizontal: 14, paddingVertical: 7 },
+  chipTxt:    { color: colors.textSub, fontSize: 13, fontWeight: '500' },
+  chipTxtActive: { color: '#fff', fontSize: 13, fontWeight: '700' },
 });
 
-const hStyles = StyleSheet.create({
-  card: { width: 140, marginRight: 12 },
-  artwork: {
-    width: 140, height: 140, borderRadius: 14,
-    alignItems: 'center', justifyContent: 'center',
-    marginBottom: 10, overflow: 'hidden',
-    backgroundColor: '#111',
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)',
+const hS = StyleSheet.create({
+  card: { width: 152, marginRight: 12 },
+  art: {
+    width: 152, height: 152, borderRadius: 18, overflow: 'hidden',
+    backgroundColor: colors.bgCard,
+    borderWidth: 1, borderColor: colors.glassBorder,
   },
-  playOverlay: {
-    position: 'absolute', bottom: 8, right: 8,
-    width: 32, height: 32, borderRadius: 16,
-    backgroundColor: 'rgba(0,0,0,0.65)',
-    alignItems: 'center', justifyContent: 'center',
+  artFallback: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  overlay: {
+    position: 'absolute', bottom: 0, left: 0, right: 0,
+    padding: 10, paddingTop: 30,
+  },
+  artTitle:  { color: colors.white, fontSize: 12, fontWeight: '700', lineHeight: 16, marginBottom: 2 },
+  artArtist: { color: 'rgba(255,255,255,0.5)', fontSize: 10 },
+  playBtn: {
+    position: 'absolute', top: 8, right: 8,
+    width: 28, height: 28, borderRadius: 14,
+    backgroundColor: 'rgba(0,0,0,0.55)',
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)',
+    alignItems: 'center', justifyContent: 'center',
   },
-  title: { color: '#fff', fontSize: 13, fontWeight: '600', lineHeight: 18, marginBottom: 3 },
-  artist: { color: 'rgba(255,255,255,0.4)', fontSize: 11 },
 });

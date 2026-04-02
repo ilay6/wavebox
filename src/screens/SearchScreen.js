@@ -1,42 +1,41 @@
-import { View, Text, TextInput, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator, Animated, Easing } from 'react-native';
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { View, Text, TextInput, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator, Animated } from 'react-native';
+import { useState, useCallback, useRef } from 'react';
 import { Ionicons } from '@expo/vector-icons';
-import { BlurView } from 'expo-blur';
 import AnimatedBackground from '../components/AnimatedBackground';
 import TrackCard from '../components/TrackCard';
+import { colors } from '../theme';
 import { searchTracks } from '../services/soundcloud';
 import { usePlayer } from '../store/player';
 
 const CATEGORIES = [
-  { label: 'Lo-Fi', icon: 'headset-outline', desc: 'Beats to relax' },
-  { label: 'Hip-Hop', icon: 'mic-outline', desc: 'Street sounds' },
-  { label: 'Electronic', icon: 'pulse-outline', desc: 'Digital waves' },
-  { label: 'Ambient', icon: 'cloud-outline', desc: 'Space & calm' },
-  { label: 'Indie', icon: 'color-palette-outline', desc: 'Independent art' },
-  { label: 'Jazz', icon: 'musical-notes-outline', desc: 'Classic cool' },
-  { label: 'Drill', icon: 'flame-outline', desc: 'Hard energy' },
-  { label: 'R&B', icon: 'heart-outline', desc: 'Soulful vibes' },
-  { label: 'Techno', icon: 'disc-outline', desc: 'Deep beats' },
-  { label: 'Trap', icon: 'thunderstorm-outline', desc: 'Dark trap' },
+  { label: 'Lo-Fi',      icon: 'headset-outline'       },
+  { label: 'Hip-Hop',    icon: 'mic-outline'            },
+  { label: 'Electronic', icon: 'pulse-outline'          },
+  { label: 'Ambient',    icon: 'cloud-outline'          },
+  { label: 'Indie',      icon: 'color-palette-outline'  },
+  { label: 'Jazz',       icon: 'musical-notes-outline'  },
+  { label: 'Drill',      icon: 'flame-outline'          },
+  { label: 'R&B',        icon: 'heart-outline'          },
+  { label: 'Techno',     icon: 'disc-outline'           },
+  { label: 'Trap',       icon: 'thunderstorm-outline'   },
 ];
 
 export default function SearchScreen() {
-  const [query, setQuery] = useState('');
-  const [results, setResults] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [query,    setQuery]    = useState('');
+  const [results,  setResults]  = useState([]);
+  const [loading,  setLoading]  = useState(false);
   const [searched, setSearched] = useState(false);
-  const [focused, setFocused] = useState(false);
+  const [focused,  setFocused]  = useState(false);
   const { playTrack } = usePlayer();
-  const inputAnim = useRef(new Animated.Value(0)).current;
+  const borderAnim = useRef(new Animated.Value(0)).current;
 
   const handleFocus = () => {
     setFocused(true);
-    Animated.timing(inputAnim, { toValue: 1, duration: 200, useNativeDriver: false }).start();
+    Animated.timing(borderAnim, { toValue: 1, duration: 200, useNativeDriver: false }).start();
   };
-
   const handleBlur = () => {
     setFocused(false);
-    Animated.timing(inputAnim, { toValue: 0, duration: 200, useNativeDriver: false }).start();
+    Animated.timing(borderAnim, { toValue: 0, duration: 200, useNativeDriver: false }).start();
   };
 
   const handleSearch = useCallback(async (q) => {
@@ -47,24 +46,24 @@ export default function SearchScreen() {
     setLoading(false);
   }, []);
 
-  const borderColor = inputAnim.interpolate({
+  const borderColor = borderAnim.interpolate({
     inputRange: [0, 1],
-    outputRange: ['rgba(255,255,255,0.08)', 'rgba(255,255,255,0.25)'],
+    outputRange: [colors.glassBorder, 'rgba(45,212,191,0.5)'],
   });
 
   return (
-    <View style={styles.screen}>
+    <View style={S.screen}>
       <AnimatedBackground />
 
-      {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.title}>Search</Text>
-        <Animated.View style={[styles.searchBar, { borderColor }]}>
-          <Ionicons name="search" size={17} color={focused ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.3)'} />
+      <View style={S.header}>
+        <Text style={S.title}>Search</Text>
+        <Animated.View style={[S.searchBar, { borderColor }]}>
+          <Ionicons name="search" size={16}
+            color={focused ? colors.accent : colors.textMuted} />
           <TextInput
-            style={styles.input}
+            style={S.input}
             placeholder="Artists, tracks, genres..."
-            placeholderTextColor="rgba(255,255,255,0.25)"
+            placeholderTextColor={colors.textMuted}
             value={query}
             onChangeText={setQuery}
             onSubmitEditing={() => handleSearch(query)}
@@ -75,7 +74,7 @@ export default function SearchScreen() {
           />
           {query.length > 0 && (
             <TouchableOpacity onPress={() => { setQuery(''); setResults([]); setSearched(false); }}>
-              <Ionicons name="close-circle" size={17} color="rgba(255,255,255,0.3)" />
+              <Ionicons name="close-circle" size={16} color={colors.textMuted} />
             </TouchableOpacity>
           )}
         </Animated.View>
@@ -86,35 +85,31 @@ export default function SearchScreen() {
           data={CATEGORIES}
           keyExtractor={c => c.label}
           numColumns={2}
-          columnWrapperStyle={styles.catRow}
-          contentContainerStyle={styles.catList}
+          columnWrapperStyle={S.catRow}
+          contentContainerStyle={S.catList}
           showsVerticalScrollIndicator={false}
-          ListHeaderComponent={<Text style={styles.browseTitle}>Browse</Text>}
+          ListHeaderComponent={<Text style={S.browseTitle}>Browse</Text>}
           renderItem={({ item }) => (
-            <TouchableOpacity
-              style={styles.catCard}
-              onPress={() => { setQuery(item.label); handleSearch(item.label); }}
-              activeOpacity={0.75}
-            >
-              <View style={styles.catIconWrap}>
-                <Ionicons name={item.icon} size={22} color="rgba(255,255,255,0.6)" />
+            <TouchableOpacity style={S.catCard} onPress={() => { setQuery(item.label); handleSearch(item.label); }} activeOpacity={0.82}>
+              <View style={S.catInner}>
+                <Ionicons name={item.icon} size={22} color={colors.accent} />
+                <Text style={S.catLabel}>{item.label}</Text>
               </View>
-              <Text style={styles.catLabel}>{item.label}</Text>
-              <Text style={styles.catDesc}>{item.desc}</Text>
+              <View style={S.catBorder} />
             </TouchableOpacity>
           )}
           ListFooterComponent={<View style={{ height: 160 }} />}
         />
       ) : loading ? (
-        <View style={styles.center}>
-          <ActivityIndicator color="#fff" size="large" />
-          <Text style={styles.loadingText}>Searching SoundCloud...</Text>
+        <View style={S.center}>
+          <ActivityIndicator color={colors.accent} size="large" />
+          <Text style={S.loadTxt}>Searching SoundCloud...</Text>
         </View>
       ) : results.length === 0 ? (
-        <View style={styles.center}>
-          <Ionicons name="search-outline" size={52} color="rgba(255,255,255,0.15)" />
-          <Text style={styles.emptyTitle}>No results</Text>
-          <Text style={styles.emptyText}>Try a different search term</Text>
+        <View style={S.center}>
+          <Ionicons name="search-outline" size={48} color={colors.textMuted} />
+          <Text style={S.emptyTitle}>No results</Text>
+          <Text style={S.emptyTxt}>Try a different search term</Text>
         </View>
       ) : (
         <FlatList
@@ -131,36 +126,32 @@ export default function SearchScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: '#080808' },
-  header: { paddingTop: 64, paddingHorizontal: 20, paddingBottom: 8 },
-  title: { color: '#fff', fontSize: 34, fontWeight: '800', letterSpacing: -1, marginBottom: 16 },
+const S = StyleSheet.create({
+  screen: { flex: 1, backgroundColor: colors.bg },
+  header: { paddingTop: 62, paddingHorizontal: 20, paddingBottom: 10 },
+  title:  { color: colors.white, fontSize: 32, fontWeight: '800', letterSpacing: -1, marginBottom: 14 },
+
   searchBar: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderRadius: 14, paddingHorizontal: 14, paddingVertical: 13,
+    backgroundColor: colors.glass,
+    borderRadius: 16, paddingHorizontal: 14, paddingVertical: 14,
     borderWidth: 1,
   },
-  input: { flex: 1, color: '#fff', fontSize: 15 },
+  input: { flex: 1, color: colors.white, fontSize: 15 },
 
-  browseTitle: { color: '#fff', fontSize: 18, fontWeight: '700', marginLeft: 20, marginTop: 20, marginBottom: 4 },
-  catList: { paddingHorizontal: 16, paddingTop: 8 },
-  catRow: { gap: 10, marginBottom: 10 },
-  catCard: {
-    flex: 1, backgroundColor: 'rgba(255,255,255,0.04)',
-    borderRadius: 16, padding: 16,
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)',
+  browseTitle: { color: colors.white, fontSize: 17, fontWeight: '700', marginLeft: 4, marginTop: 18, marginBottom: 6 },
+  catList: { paddingHorizontal: 16, paddingTop: 4 },
+  catRow:  { gap: 10, marginBottom: 10 },
+  catCard: { flex: 1, borderRadius: 18, overflow: 'hidden' },
+  catInner: {
+    padding: 18, gap: 10, minHeight: 88, justifyContent: 'space-between',
+    backgroundColor: 'rgba(255,255,255,0.04)',
   },
-  catIconWrap: {
-    width: 42, height: 42, borderRadius: 11,
-    backgroundColor: 'rgba(255,255,255,0.07)',
-    alignItems: 'center', justifyContent: 'center', marginBottom: 10,
-  },
-  catLabel: { color: '#fff', fontSize: 14, fontWeight: '600', marginBottom: 3 },
-  catDesc: { color: 'rgba(255,255,255,0.35)', fontSize: 11 },
+  catBorder: { ...StyleSheet.absoluteFillObject, borderRadius: 18, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
+  catLabel: { color: colors.white, fontSize: 14, fontWeight: '600' },
 
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10 },
-  loadingText: { color: 'rgba(255,255,255,0.4)', fontSize: 14 },
-  emptyTitle: { color: '#fff', fontSize: 18, fontWeight: '700' },
-  emptyText: { color: 'rgba(255,255,255,0.4)', fontSize: 14 },
+  center:     { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10 },
+  loadTxt:    { color: colors.textSub, fontSize: 14 },
+  emptyTitle: { color: colors.white, fontSize: 18, fontWeight: '700' },
+  emptyTxt:   { color: colors.textSub, fontSize: 14 },
 });

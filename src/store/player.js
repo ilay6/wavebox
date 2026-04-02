@@ -1,6 +1,5 @@
 import { createContext, useContext, useState, useRef, useCallback, useEffect } from 'react';
 import { Platform } from 'react-native';
-import Hls from 'hls.js';
 
 const PlayerContext = createContext(null);
 
@@ -20,73 +19,66 @@ function unlockAudio() {
   } catch {}
 }
 
-// ── URL cache: prefetch HLS URLs so playback starts instantly ─────────────────
-const _urlCache = new Map(); // trackUrl → { hlsUrl, expires }
-const URL_TTL = 8 * 60 * 1000; // 8 min (SoundCloud HLS URLs last ~10 min)
-
-async function resolveHlsUrl(trackUrl) {
-  const cached = _urlCache.get(trackUrl);
-  if (cached && Date.now() < cached.expires) return cached.hlsUrl;
-  try {
-    const res = await fetch(`${SERVER}/stream_url?url=${encodeURIComponent(trackUrl)}`);
-    if (res.ok) {
-      const data = await res.json();
-      if (data.url) {
-        _urlCache.set(trackUrl, { hlsUrl: data.url, expires: Date.now() + URL_TTL });
-        return data.url;
-      }
-    }
-  } catch {}
-  return null;
-}
-
-export function prefetchTracks(tracks) {
-  // Prefetch HLS URLs for the given tracks in background — makes playback instant
-  if (Platform.OS !== 'web' || !tracks?.length) return;
-  tracks.slice(0, 6).forEach(t => { if (t?.url) resolveHlsUrl(t.url); });
-}
-
-// Get the best playable URI for a track
-async function getAudioUri(trackUrl) {
-  const hlsUrl = await resolveHlsUrl(trackUrl);
-  if (hlsUrl) return hlsUrl;
+// Build stream URL — server handles caching, no need for client-side URL cache
+function getStreamUrl(trackUrl) {
   return `${SERVER}/stream?url=${encodeURIComponent(trackUrl)}`;
 }
 
-// Fire-and-forget preload (server caches download for native)
+// Warm up server URL cache — ~1.5s, eliminates yt-dlp wait on playback
+function resolveTrack(track) {
+  if (!track?.url) return;
+  fetch(`${SERVER}/resolve?url=${encodeURIComponent(track.url)}`).catch(() => {});
+}
+
+// Tell server to fully download and cache a track in background
 function preloadTrack(track) {
   if (!track?.url) return;
   fetch(`${SERVER}/preload?url=${encodeURIComponent(track.url)}`).catch(() => {});
 }
 
-// ── Web Audio Engine with 5-band EQ ──────────────────────────────────────────
+// Called when a track list loads — resolve URLs for all visible tracks,
+// fully preload the first 3 so they play instantly
+export function prefetchTracks(tracks) {
+  if (Platform.OS !== 'web' || !tracks?.length) return;
+  // Resolve URL for all tracks (fast, just warms server cache)
+  tracks.slice(0, 12).forEach(t => resolveTrack(t));
+  // Fully download first 3
+  tracks.slice(0, 3).forEach(t => preloadTrack(t));
+}
+
+// ── Web Audio Engine with 5-band EQ + Analyser ───────────────────────────────
 class WebAudio {
   constructor() {
     this.audio = null;
-    this.hls = null;
     this.ctx = null;
     this.source = null;
+    this.analyser = null;
     this.filters = [];
     this.eqGains = [0, 0, 0, 0, 0]; // persist across tracks
     this.onStatus = null;
-    this._eqConnected = false;
+    this._freqData = null;
+    this._graphConnected = false;
   }
 
-  // ── Lazy EQ graph: only connect Web Audio when EQ is non-flat ──────────────
   _ensureCtx() {
     if (this.ctx) return;
     const AC = window.AudioContext || window.webkitAudioContext;
     if (AC) { this.ctx = new AC(); this.ctx.resume().catch(() => {}); }
   }
 
-  _connectEq() {
-    if (!this.audio || !this.ctx || this._eqConnected) return;
+  // Build full graph: source → analyser → eq filters → destination
+  _buildGraph() {
+    if (!this.audio || !this.ctx || this._graphConnected) return;
     try {
       this.source = this.ctx.createMediaElementSource(this.audio);
-      this._eqConnected = true;
-    } catch {
-      return; // already connected or unsupported — audio plays via default route
-    }
+    } catch { return; }
+    this._graphConnected = true;
+
+    this.analyser = this.ctx.createAnalyser();
+    this.analyser.fftSize = 512;
+    this.analyser.smoothingTimeConstant = 0.8;
+    this._freqData = new Uint8Array(this.analyser.frequencyBinCount);
+
     const BANDS = [
       { type: 'lowshelf',  freq: 60 },
       { type: 'peaking',   freq: 250 },
@@ -100,23 +92,23 @@ class WebAudio {
       f.gain.value = this.eqGains[i]; f.Q.value = 1.0;
       return f;
     });
-    let node = this.source;
+
+    // source → analyser → filter1..5 → destination
+    this.source.connect(this.analyser);
+    let node = this.analyser;
     for (const f of this.filters) { node.connect(f); node = f; }
-    // Always connect to destination — if anything above fails, still connect source
-    try { node.connect(this.ctx.destination); } catch {
-      try { this.source.connect(this.ctx.destination); } catch {}
-    }
+    node.connect(this.ctx.destination);
   }
 
   setEqBand(index, gainDb) {
     this.eqGains[index] = gainDb;
-    if (this._eqConnected && this.filters[index]) {
-      this.filters[index].gain.value = gainDb;
-    } else if (this.eqGains.some(g => g !== 0)) {
-      // User changed EQ — connect Web Audio now
-      this._ensureCtx();
-      this._connectEq();
-    }
+    if (this.filters[index]) this.filters[index].gain.value = gainDb;
+  }
+
+  getFrequencyData() {
+    if (!this.analyser || !this._freqData) return null;
+    this.analyser.getByteFrequencyData(this._freqData);
+    return this._freqData;
   }
 
   _attachEvents() {
@@ -138,48 +130,20 @@ class WebAudio {
     };
   }
 
-  async load(uri) {
+  load(uri) {
     this.unload();
 
     this.audio = new Audio();
+    this.audio.crossOrigin = 'anonymous';
     this.audio.preload = 'auto';
     this._attachEvents();
 
-    // If EQ was already set, connect Web Audio now
-    if (this.eqGains.some(g => g !== 0)) {
-      this._ensureCtx();
-    }
+    // Always build the audio graph so the analyser works from the start
+    this._ensureCtx();
+    this._buildGraph();
 
-    const isHLS = uri.includes('.m3u8') || uri.includes('sndcdn.com');
-
-    if (isHLS && Hls.isSupported()) {
-      this.hls = new Hls({ enableWorker: false, lowLatencyMode: false });
-      this.hls.loadSource(uri);
-      this.hls.attachMedia(this.audio);
-      if (this.ctx) this._connectEq(); // re-apply EQ to new audio element
-      await new Promise((resolve) => {
-        const timer = setTimeout(resolve, 8000);
-        this.hls.on(Hls.Events.MANIFEST_PARSED, () => { clearTimeout(timer); resolve(); });
-        this.hls.on(Hls.Events.ERROR, (_, d) => { if (d.fatal) { clearTimeout(timer); resolve(); } });
-      });
-    } else if (this.audio.canPlayType('application/vnd.apple.mpegurl')) {
-      this.audio.src = uri;
-      if (this.ctx) this._connectEq();
-      await new Promise((resolve) => {
-        const timer = setTimeout(resolve, 8000);
-        this.audio.oncanplay = () => { clearTimeout(timer); resolve(); };
-        this.audio.load();
-      });
-    } else {
-      this.audio.crossOrigin = 'anonymous';
-      this.audio.src = uri;
-      if (this.ctx) this._connectEq();
-      await new Promise((resolve) => {
-        const timer = setTimeout(resolve, 8000);
-        this.audio.oncanplay = () => { clearTimeout(timer); resolve(); };
-        this.audio.load();
-      });
-    }
+    this.audio.src = uri;
+    this.audio.load();
   }
 
   async play() {
@@ -194,20 +158,27 @@ class WebAudio {
     if (this.audio) this.audio.currentTime = ms / 1000;
   }
 
+  setVolume(v) {
+    if (this.audio) this.audio.volume = Math.max(0, Math.min(1, v));
+  }
+
   unload() {
-    if (this.hls) { try { this.hls.destroy(); } catch {} this.hls = null; }
     if (this.audio) {
       this.audio.pause();
-      if (this._eqConnected) {
+      if (this._graphConnected) {
         try { this.source?.disconnect(); } catch {}
+        try { this.analyser?.disconnect(); } catch {}
+        this.filters.forEach(f => { try { f?.disconnect(); } catch {} });
         this.source = null;
+        this.analyser = null;
+        this._freqData = null;
         this.filters = [];
-        this._eqConnected = false;
+        this._graphConnected = false;
       }
       this.audio.src = '';
       this.audio = null;
     }
-    // ctx kept alive; eqGains kept alive
+    // ctx and eqGains stay alive across tracks
   }
 
   getStatus() {
@@ -240,6 +211,7 @@ class NativeAudio {
   async pause() { await this.sound?.pauseAsync(); }
   async setPosition(ms) { await this.sound?.setPositionAsync(ms); }
   setEqBand() {}
+  setVolume() {}
 
   unload() {
     this.sound?.unloadAsync();
@@ -331,15 +303,14 @@ export function PlayerProvider({ children }) {
     }
 
     try {
-      unlockAudio(); // must be synchronous — unlocks autoplay before any awaits
-      const engine = getEngine();
-      engine.unload();
+      unlockAudio(); // must be synchronous before any awaits
 
-      const streamUri = await getAudioUri(track.url);
+      const engine = getEngine();
+      const streamUri = getStreamUrl(track.url); // synchronous — no await needed
 
       if (Platform.OS === 'web') {
         engine.onStatus = handleStatus;
-        await engine.load(streamUri);
+        engine.load(streamUri); // non-blocking — browser starts buffering immediately
         await engine.play();
         setIsPlaying(true);
       } else {
@@ -349,12 +320,13 @@ export function PlayerProvider({ children }) {
 
       setLoading(false);
 
-      // Preload next track immediately in background
+      // Preload next 2 tracks immediately — so switching is instant
       const idx = q.findIndex(t => t.id === track.id);
-      if (idx >= 0 && idx < q.length - 1) {
-        const next = q[idx + 1];
-        preloadedIdRef.current = next.id;
-        preloadTrack(next);
+      if (idx >= 0) {
+        const next1 = q[idx + 1];
+        const next2 = q[idx + 2];
+        if (next1) { preloadedIdRef.current = next1.id; preloadTrack(next1); }
+        if (next2) resolveTrack(next2); // resolve URL only, full download later
       }
     } catch (e) {
       console.log('playTrack error:', e);
@@ -364,6 +336,7 @@ export function PlayerProvider({ children }) {
   }, []);
 
   const togglePlay = useCallback(async () => {
+    unlockAudio();
     const engine = getEngine();
     if (isPlaying) {
       await engine.pause();
@@ -377,6 +350,14 @@ export function PlayerProvider({ children }) {
   const seekTo = useCallback(async (seconds) => {
     await getEngine().setPosition(seconds * 1000);
     setProgress(seconds);
+  }, []);
+
+  const setVolume = useCallback((v) => {
+    getEngine().setVolume?.(v);
+  }, []);
+
+  const getFrequencyData = useCallback(() => {
+    return engineRef.current?.getFrequencyData?.() ?? null;
   }, []);
 
   const setEqBand = useCallback((index, gainDb) => {
@@ -423,7 +404,7 @@ export function PlayerProvider({ children }) {
     <PlayerContext.Provider value={{
       currentTrack, queue, isPlaying, progress, duration, loading, error,
       liked, eqGains,
-      playTrack, togglePlay, toggleLike, playNext, playPrev, seekTo,
+      playTrack, togglePlay, toggleLike, playNext, playPrev, seekTo, setVolume, getFrequencyData,
       setEqBand, setEqPreset, prefetchTracks,
     }}>
       {children}
