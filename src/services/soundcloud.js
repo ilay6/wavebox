@@ -29,15 +29,16 @@ function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
 
 // ─── Core search (single artist/query) ───────────────────────────────────────
 export async function searchTracks(query, limit = 5) {
+  const url = `${SERVER}/search?q=${encodeURIComponent(query)}&limit=${limit}`;
   try {
-    const res = await fetchWithTimeout(
-      `${SERVER}/search?q=${encodeURIComponent(query)}&limit=${limit}`
-    );
-    if (!res.ok) throw new Error('server error');
+    console.warn('[WaveBox] fetching:', url);
+    const res = await fetchWithTimeout(url);
+    if (!res.ok) throw new Error(`server ${res.status}`);
     const data = await res.json();
+    console.warn('[WaveBox] got', (data.tracks || []).length, 'tracks for', query);
     return data.tracks || [];
   } catch (e) {
-    console.log('search error:', e.message);
+    console.error('[WaveBox] search FAILED:', query, e.message, '| url:', url);
     return [];
   }
 }
