@@ -1,5 +1,5 @@
 import { View, Text, TouchableOpacity, StyleSheet, Animated, Image } from 'react-native';
-import { useRef } from 'react';
+import { useRef, useEffect } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 
 import { colors } from '../theme';
@@ -68,13 +68,18 @@ export default function TrackCard({ track, onPress, showIndex, index }) {
 }
 
 function PlayingIndicator() {
-  const bars = [useRef(new Animated.Value(0.4)).current, useRef(new Animated.Value(0.8)).current, useRef(new Animated.Value(0.5)).current];
-  bars.forEach((bar, i) => {
-    Animated.loop(Animated.sequence([
-      Animated.timing(bar, { toValue: 1,   duration: 300 + i * 100, useNativeDriver: false }),
-      Animated.timing(bar, { toValue: 0.2, duration: 300 + i * 100, useNativeDriver: false }),
-    ])).start();
-  });
+  const bar0 = useRef(new Animated.Value(0.4)).current;
+  const bar1 = useRef(new Animated.Value(0.8)).current;
+  const bar2 = useRef(new Animated.Value(0.5)).current;
+  const bars = [bar0, bar1, bar2];
+  useEffect(() => {
+    bars.forEach((bar, i) => {
+      Animated.loop(Animated.sequence([
+        Animated.timing(bar, { toValue: 1,   duration: 300 + i * 100, useNativeDriver: false }),
+        Animated.timing(bar, { toValue: 0.2, duration: 300 + i * 100, useNativeDriver: false }),
+      ])).start();
+    });
+  }, []);
   return (
     <View style={styles.playIndicator}>
       {bars.map((bar, i) => (

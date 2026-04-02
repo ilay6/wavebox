@@ -84,16 +84,15 @@ function HCard({ track, onPress }) {
 
 // ── Animated wave bars ────────────────────────────────────────────────────────
 function WaveBars() {
-  const bars = Array.from({ length: 14 }, (_, i) => {
-    const a = useRef(new Animated.Value(Math.random())).current;
-    useEffect(() => {
+  const bars = useRef(Array.from({ length: 14 }, () => new Animated.Value(Math.random()))).current;
+  useEffect(() => {
+    bars.forEach(a => {
       Animated.loop(Animated.sequence([
         Animated.timing(a, { toValue: Math.random() * 0.85 + 0.15, duration: 350 + Math.random() * 400, useNativeDriver: false }),
         Animated.timing(a, { toValue: Math.random() * 0.2 + 0.05,  duration: 350 + Math.random() * 400, useNativeDriver: false }),
       ])).start();
-    }, []);
-    return a;
-  });
+    });
+  }, []);
   return (
     <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 3, height: 42 }}>
       {bars.map((a, i) => (
