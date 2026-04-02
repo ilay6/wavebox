@@ -12,7 +12,7 @@ import uvicorn
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-YT_DLP = os.environ.get("YTDLP_PATH", "/opt/homebrew/bin/yt-dlp")
+YT_DLP = os.environ.get("YTDLP_PATH", "yt-dlp")
 CACHE_DIR = os.path.join(tempfile.gettempdir(), "wavebox_v4")
 os.makedirs(CACHE_DIR, exist_ok=True)
 
@@ -98,8 +98,11 @@ async def health():
 
 @app.get("/search")
 async def search(q: str, limit: int = 10):
-    code, out, err = await ytdlp(f"scsearch{limit}:{q}",
-        "--dump-json", "--flat-playlist", "--no-warnings", "--quiet", timeout=25)
+    try:
+        code, out, err = await ytdlp(f"scsearch{limit}:{q}",
+            "--dump-json", "--flat-playlist", "--no-warnings", "--quiet", timeout=25)
+    except Exception as e:
+        return {"tracks": [], "error": f"ytdlp failed: {str(e)[:100]}"}
     if code != 0:
         return {"tracks": [], "error": err[:100]}
     tracks = []
