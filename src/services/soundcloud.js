@@ -60,84 +60,44 @@ async function searchMultiple(artists, limitEach = 3) {
 
 // ─── Home sections ────────────────────────────────────────────────────────────
 
-// Pools of artists — random subset each session for variety
-const TRENDING_POOLS = [
-  ['Drake', 'Travis Scott', 'Future', 'Don Toliver'],
-  ['Lil Baby', 'Gunna', 'Young Thug', 'Lil Uzi Vert'],
-  ['Drake', 'Kendrick Lamar', 'Future', 'Metro Boomin'],
-  ['Travis Scott', 'Playboi Carti', 'Don Toliver', 'Nav'],
-];
-
-const NEW_POOLS = [
-  ['The Weeknd', 'Post Malone', 'Playboi Carti'],
-  ['SZA', 'Frank Ocean', 'Daniel Caesar'],
-  ['21 Savage', 'Offset', 'Quavo'],
-  ['The Weeknd', 'Post Malone', 'Jack Harlow'],
-];
-
-const RU_POOLS = [
-  ['Моргенштерн', 'Скриптонит', 'Miyagi'],
-  ['FACE', 'Макс Корж', 'Элджей'],
-  ['Скриптонит', 'Yanix', 'Oxxxymiron'],
-  ['Моргенштерн', 'FACE', 'Boulevard Depo'],
-];
-
-const CHILL_POOLS = [
-  ['lofi hip hop', 'chillwave study', 'jazz cafe'],
-  ['ambient beats', 'lo fi chill', 'peaceful piano'],
-  ['lofi girl', 'study beats', 'chill hop'],
-  ['synthwave chill', 'dream pop', 'bedroom pop'],
-];
+// Single search queries — one request per section instead of 3-4 parallel
+const TRENDING_QUERIES = ['trending hip hop', 'popular rap 2025', 'top hits', 'viral songs'];
+const NEW_QUERIES = ['new music 2025', 'latest releases', 'new songs', 'fresh tracks'];
+const RU_QUERIES = ['русский рэп', 'русская музыка хит', 'скриптонит', 'русский хип хоп'];
+const CHILL_QUERIES = ['lofi chill beats', 'study lofi', 'chill hop', 'ambient lofi'];
 
 export async function getTrending(limit = 15) {
-  const pool = pick(TRENDING_POOLS);
-  return cachedFetch(`trending_${pool[0]}`, () => searchMultiple(pool, 3));
+  const q = pick(TRENDING_QUERIES);
+  return cachedFetch(`trending_${q}`, () => searchTracks(q, limit));
 }
 
 export async function getNewReleases(limit = 10) {
-  const pool = pick(NEW_POOLS);
-  return cachedFetch(`new_${pool[0]}`, () => searchMultiple(pool, 3));
+  const q = pick(NEW_QUERIES);
+  return cachedFetch(`new_${q}`, () => searchTracks(q, limit));
 }
 
 export async function getRussianTracks(limit = 10) {
-  const pool = pick(RU_POOLS);
-  return cachedFetch(`ru_${pool[0]}`, () => searchMultiple(pool, 3));
+  const q = pick(RU_QUERIES);
+  return cachedFetch(`ru_${q}`, () => searchTracks(q, limit));
 }
 
 export async function getChillTracks(limit = 10) {
-  const pool = pick(CHILL_POOLS);
-  return cachedFetch(`chill_${pool[0]}`, () => searchMultiple(pool, 3));
+  const q = pick(CHILL_QUERIES);
+  return cachedFetch(`chill_${q}`, () => searchTracks(q, limit));
 }
 
 export async function getRecommended(likedTracks = []) {
   if (likedTracks.length > 0) {
     const artists = [...new Set(likedTracks.map(t => t.user?.username).filter(Boolean))];
-    return searchMultiple(artists.slice(0, 4), 4);
+    if (artists.length) return searchTracks(artists[0], 10);
   }
-  const fallback = pick([
-    ['Kendrick Lamar', 'Tyler the Creator', 'J. Cole'],
-    ['SZA', 'Frank Ocean', 'H.E.R.'],
-    ['Metro Boomin', 'Pharrell', 'Kanye West'],
-  ]);
-  return cachedFetch(`rec_${fallback[0]}`, () => searchMultiple(fallback, 4));
+  const fallback = pick(['popular music mix', 'best songs 2025', 'top tracks']);
+  return cachedFetch(`rec_${fallback}`, () => searchTracks(fallback, 10));
 }
 
-// Genre
-const GENRE_ARTISTS = {
-  'Lo-Fi':     ['lofi hip hop', 'lofi chill beats', 'study lofi', 'calm lofi'],
-  'Synthwave': ['synthwave', 'retrowave', 'outrun synthwave', 'Kavinsky'],
-  'Ambient':   ['ambient', 'dark ambient', 'atmospheric music', 'drone ambient'],
-  'Hip-Hop':   ['Drake', 'Kendrick Lamar', 'J. Cole', 'Travis Scott'],
-  'Indie':     ['indie pop', 'bedroom pop', 'indie folk', 'indie rock'],
-  'Techno':    ['techno', 'dark techno', 'underground techno', 'minimal techno'],
-  'Jazz':      ['jazz', 'neo soul', 'smooth jazz', 'jazz piano'],
-};
-
 export async function getTopTracks(genre = '', limit = 15) {
-  if (genre && GENRE_ARTISTS[genre]) {
-    return cachedFetch(`genre_${genre}`, () =>
-      searchMultiple(GENRE_ARTISTS[genre], 4)
-    );
+  if (genre) {
+    return cachedFetch(`genre_${genre}`, () => searchTracks(genre, limit));
   }
   return getTrending(limit);
 }
