@@ -98,11 +98,18 @@ async def health():
 
 @app.get("/search")
 async def search(q: str, limit: int = 10):
-    try:
-        code, out, err = await ytdlp(f"scsearch{limit}:{q}",
-            "--dump-json", "--flat-playlist", "--no-warnings", "--quiet", timeout=25)
-    except Exception as e:
-        return {"tracks": [], "error": f"ytdlp failed: {str(e)[:100]}"}
+    # Try twice — first attempt may fail on cold yt-dlp
+    for attempt in range(2):
+        try:
+            code, out, err = await ytdlp(f"scsearch{limit}:{q}",
+                "--dump-json", "--flat-playlist", "--no-warnings", "--quiet", timeout=45)
+        except Exception as e:
+            if attempt == 0: continue
+            return {"tracks": [], "error": f"ytdlp failed: {str(e)[:100]}"}
+        if code == 0 and out.strip():
+            break
+        if attempt == 0: continue
+        return {"tracks": [], "error": err[:100]}
     if code != 0:
         return {"tracks": [], "error": err[:100]}
     tracks = []

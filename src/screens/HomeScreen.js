@@ -131,17 +131,13 @@ export default function HomeScreen({ navigation }) {
   }, []);
 
   async function loadAll() {
-    // Load sequentially — Render free tier can't handle parallel yt-dlp
-    const n = await getNewReleases(10);
+    // Load in pairs — Render free tier can handle 2 parallel yt-dlp
+    const [n, t] = await Promise.all([getNewReleases(10), getTrending(15)]);
     setNewTracks(n); setLNew(false); prefetchTracks(n);
-
-    const t = await getTrending(15);
     setTrending(t); setGenreTracks(t); setLTrend(false); prefetchTracks(t);
 
-    const r = await getRussianTracks(10);
+    const [r, c] = await Promise.all([getRussianTracks(10), getChillTracks(10)]);
     setRussian(r); setLRu(false); prefetchTracks(r);
-
-    const c = await getChillTracks(10);
     setChill(c); setLChill(false); prefetchTracks(c);
   }
 

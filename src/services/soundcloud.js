@@ -31,14 +31,12 @@ function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
 export async function searchTracks(query, limit = 5) {
   const url = `${SERVER}/search?q=${encodeURIComponent(query)}&limit=${limit}`;
   try {
-    console.warn('[WaveBox] fetching:', url);
     const res = await fetchWithTimeout(url);
     if (!res.ok) throw new Error(`server ${res.status}`);
     const data = await res.json();
-    console.warn('[WaveBox] got', (data.tracks || []).length, 'tracks for', query, data.error ? '| ERROR: ' + data.error : '');
     return data.tracks || [];
   } catch (e) {
-    console.error('[WaveBox] search FAILED:', query, e.message, '| url:', url);
+    console.warn('[WaveBox] search failed:', query, e.message);
     return [];
   }
 }
@@ -61,11 +59,11 @@ async function searchMultiple(artists, limitEach = 3) {
 
 // ─── Home sections ────────────────────────────────────────────────────────────
 
-// Single search queries — one request per section instead of 3-4 parallel
-const TRENDING_QUERIES = ['trending hip hop', 'popular rap 2025', 'top hits', 'viral songs'];
-const NEW_QUERIES = ['new music 2025', 'latest releases', 'new songs', 'fresh tracks'];
-const RU_QUERIES = ['русский рэп', 'русская музыка хит', 'скриптонит', 'русский хип хоп'];
-const CHILL_QUERIES = ['lofi chill beats', 'study lofi', 'chill hop', 'ambient lofi'];
+// Artist-based queries — real artists give better results on SoundCloud
+const TRENDING_QUERIES = ['Drake', 'Travis Scott', 'Kendrick Lamar', 'Metro Boomin', 'Future'];
+const NEW_QUERIES = ['The Weeknd', 'Playboi Carti', 'Don Toliver', 'SZA', '21 Savage'];
+const RU_QUERIES = ['Скриптонит', 'Miyagi', 'Макс Корж', 'FACE', 'Oxxxymiron'];
+const CHILL_QUERIES = ['Lofi Girl', 'lo-fi beats', 'chillhop', 'nujabes'];
 
 export async function getTrending(limit = 15) {
   const q = pick(TRENDING_QUERIES);
@@ -92,7 +90,7 @@ export async function getRecommended(likedTracks = []) {
     const artists = [...new Set(likedTracks.map(t => t.user?.username).filter(Boolean))];
     if (artists.length) return searchTracks(artists[0], 10);
   }
-  const fallback = pick(['popular music mix', 'best songs 2025', 'top tracks']);
+  const fallback = pick(['Drake', 'The Weeknd', 'Travis Scott', 'Kendrick Lamar', 'Скриптонит']);
   return cachedFetch(`rec_${fallback}`, () => searchTracks(fallback, 10));
 }
 
