@@ -130,11 +130,19 @@ export default function HomeScreen({ navigation }) {
     loadAll();
   }, []);
 
-  function loadAll() {
-    getNewReleases(10).then(n   => { setNewTracks(n); setLNew(false);   prefetchTracks(n); });
-    getRussianTracks(10).then(r => { setRussian(r);   setLRu(false);    prefetchTracks(r); });
-    getChillTracks(10).then(c   => { setChill(c);     setLChill(false); prefetchTracks(c); });
-    getTrending(15).then(t      => { setTrending(t);  setGenreTracks(t); setLTrend(false); prefetchTracks(t); });
+  async function loadAll() {
+    // Load sequentially — Render free tier can't handle parallel yt-dlp
+    const n = await getNewReleases(10);
+    setNewTracks(n); setLNew(false); prefetchTracks(n);
+
+    const t = await getTrending(15);
+    setTrending(t); setGenreTracks(t); setLTrend(false); prefetchTracks(t);
+
+    const r = await getRussianTracks(10);
+    setRussian(r); setLRu(false); prefetchTracks(r);
+
+    const c = await getChillTracks(10);
+    setChill(c); setLChill(false); prefetchTracks(c);
   }
 
   async function handleGenre(g) {

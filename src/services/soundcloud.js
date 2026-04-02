@@ -35,7 +35,7 @@ export async function searchTracks(query, limit = 5) {
     const res = await fetchWithTimeout(url);
     if (!res.ok) throw new Error(`server ${res.status}`);
     const data = await res.json();
-    console.warn('[WaveBox] got', (data.tracks || []).length, 'tracks for', query);
+    console.warn('[WaveBox] got', (data.tracks || []).length, 'tracks for', query, data.error ? '| ERROR: ' + data.error : '');
     return data.tracks || [];
   } catch (e) {
     console.error('[WaveBox] search FAILED:', query, e.message, '| url:', url);
