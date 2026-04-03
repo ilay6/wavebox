@@ -4,7 +4,12 @@ const isLocal = typeof window !== 'undefined' &&
 const SERVER = process.env.EXPO_PUBLIC_API_URL ||
   (isLocal ? 'http://localhost:8888' : 'https://wavebox-w3ft.onrender.com');
 
-function fetchWithTimeout(url, timeoutMs = 55000) {
+// Wake up Render server immediately on page load (free tier sleeps after 15min)
+if (typeof window !== 'undefined') {
+  fetch(`${SERVER}/health`).catch(() => {});
+}
+
+function fetchWithTimeout(url, timeoutMs = 60000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   return fetch(url, { signal: controller.signal }).finally(() => clearTimeout(timer));

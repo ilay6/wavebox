@@ -131,19 +131,26 @@ export default function HomeScreen({ navigation }) {
   }, []);
 
   async function loadAll() {
-    // Each section fetches 2 artists via search2Mix (parallel on server).
-    // Sections load sequentially so server handles ~2 yt-dlp at a time.
-    const n = await getNewReleases(10);
-    setNewTracks(n); setLNew(false); prefetchTracks(n);
+    // Load one section at a time — Render free tier can only handle 1-2 yt-dlp
+    try {
+      const n = await getNewReleases();
+      setNewTracks(n); setLNew(false); prefetchTracks(n);
+    } catch(e) { setLNew(false); }
 
-    const t = await getTrending(10);
-    setTrending(t); setGenreTracks(t); setLTrend(false); prefetchTracks(t);
+    try {
+      const t = await getTrending();
+      setTrending(t); setGenreTracks(t); setLTrend(false); prefetchTracks(t);
+    } catch(e) { setLTrend(false); }
 
-    const r = await getRussianTracks(10);
-    setRussian(r); setLRu(false); prefetchTracks(r);
+    try {
+      const r = await getRussianTracks();
+      setRussian(r); setLRu(false); prefetchTracks(r);
+    } catch(e) { setLRu(false); }
 
-    const c = await getChillTracks(10);
-    setChill(c); setLChill(false); prefetchTracks(c);
+    try {
+      const c = await getChillTracks();
+      setChill(c); setLChill(false); prefetchTracks(c);
+    } catch(e) { setLChill(false); }
   }
 
   async function handleGenre(g) {
