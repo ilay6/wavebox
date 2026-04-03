@@ -151,7 +151,21 @@ async def search(q: str, limit: int = 10):
     if tracks:
         _search_cache[cache_k] = (tracks, time.time() + SEARCH_TTL)
 
+    # Auto-resolve all track URLs in background — so /stream is instant later
+    for t in tracks:
+        url = t.get("url")
+        if url and url not in _url_cache and url not in _resolve_futures:
+            asyncio.create_task(_bg_resolve(url))
+
     return {"tracks": tracks}
+
+
+async def _bg_resolve(url: str):
+    """Background resolve — fire-and-forget, errors silently ignored."""
+    try:
+        await resolve_url(url)
+    except Exception:
+        pass
 
 
 @app.get("/resolve")

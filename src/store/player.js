@@ -36,25 +36,18 @@ function preloadTrack(track) {
   fetch(`${SERVER}/preload?url=${encodeURIComponent(track.url)}`).catch(() => {});
 }
 
-// Batch resolve — warms server cache for all tracks at once
-function batchResolve(tracks) {
-  const urls = tracks.map(t => t.url).filter(Boolean);
-  if (!urls.length) return;
-  fetch(`${SERVER}/batch-resolve`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(urls.slice(0, 10)),
-  }).catch(() => {});
-}
-
-// Called when a track list loads — resolve URLs for all visible tracks,
-// fully preload the first 3 so they play instantly
+// Server auto-resolves tracks after search, but also resolve from client
+// as backup — staggered to not overload server
 export function prefetchTracks(tracks) {
   if (Platform.OS !== 'web' || !tracks?.length) return;
-  // Batch resolve all track URLs on server (single request)
-  batchResolve(tracks);
-  // Fully download first 3
-  tracks.slice(0, 3).forEach(t => preloadTrack(t));
+  // Resolve each track URL with stagger (server might already be doing this)
+  tracks.forEach((t, i) => {
+    setTimeout(() => resolveTrack(t), i * 300);
+  });
+  // Fully preload first 5 tracks
+  tracks.slice(0, 5).forEach((t, i) => {
+    setTimeout(() => preloadTrack(t), 1000 + i * 800);
+  });
 }
 
 // ── Web Audio Engine with 5-band EQ + Analyser ───────────────────────────────
