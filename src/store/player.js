@@ -137,7 +137,8 @@ class WebAudio {
       this.onStatus?.({ isLoaded: true, isPlaying: false, positionMillis: 0, durationMillis: 0, didJustFinish: true });
     };
     this.audio.onerror = (e) => {
-      console.log('Audio error:', this.audio?.error?.message || e);
+      console.warn('Audio error:', this.audio?.error?.message || e);
+      this.onError?.('Audio failed to load');
     };
   }
 
@@ -149,7 +150,7 @@ class WebAudio {
     this.audio.preload = 'auto';
     this._attachEvents();
 
-    // Always build the audio graph so the analyser works from the start
+    // Build audio graph for analyser/EQ
     this._ensureCtx();
     this._buildGraph();
 
@@ -157,10 +158,33 @@ class WebAudio {
     this.audio.load();
   }
 
+  // Wait for audio to be ready then play — handles slow streaming
   async play() {
     if (!this.audio) return;
     if (this.ctx?.state === 'suspended') await this.ctx.resume().catch(() => {});
-    return this.audio.play().catch(e => console.log('play() blocked:', e.message));
+
+    // If audio has enough data, play immediately
+    if (this.audio.readyState >= 2) {
+      return this.audio.play().catch(e => console.warn('play():', e.message));
+    }
+
+    // Otherwise wait for canplay event (server is resolving stream)
+    return new Promise((resolve) => {
+      const onReady = () => {
+        this.audio?.removeEventListener('canplay', onReady);
+        this.audio?.play().then(resolve).catch(e => {
+          console.warn('play():', e.message);
+          resolve();
+        });
+      };
+      this.audio.addEventListener('canplay', onReady);
+
+      // Timeout — don't wait forever
+      setTimeout(() => {
+        this.audio?.removeEventListener('canplay', onReady);
+        this.audio?.play().then(resolve).catch(() => resolve());
+      }, 30000);
+    });
   }
 
   async pause() { this.audio?.pause(); }
@@ -316,15 +340,16 @@ export function PlayerProvider({ children }) {
     }
 
     try {
-      unlockAudio(); // must be synchronous before any awaits
+      unlockAudio();
 
       const engine = getEngine();
-      const streamUri = getStreamUrl(track.url); // synchronous — no await needed
+      const streamUri = getStreamUrl(track.url);
 
       if (Platform.OS === 'web') {
         engine.onStatus = handleStatus;
-        engine.load(streamUri); // non-blocking — browser starts buffering immediately
-        await engine.play();
+        engine.onError = (msg) => { setError(msg); setLoading(false); };
+        engine.load(streamUri);
+        await engine.play(); // waits for canplay — handles slow server
         setIsPlaying(true);
       } else {
         await engine.load(streamUri, handleStatus);
