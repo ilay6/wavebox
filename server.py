@@ -1,6 +1,5 @@
 """
 WaveBox server — SoundCloud via yt-dlp, streams MP3 directly
-Run: /opt/homebrew/bin/python3.11 server.py
 """
 import os, asyncio, json, hashlib, tempfile, time
 import aiohttp
@@ -19,12 +18,14 @@ os.makedirs(CACHE_DIR, exist_ok=True)
 _dl_tasks: dict = {}
 
 # Server-side URL cache: track_url → (media_url, expires_at)
-# Avoids 1.5s yt-dlp wait on every /stream call for already-resolved tracks
 _url_cache: dict = {}
-URL_TTL = 8 * 60  # seconds (SoundCloud signed URLs last ~10 min)
+URL_TTL = 30 * 60  # 30 min (SoundCloud signed URLs last ~60 min)
 
-# Dedup concurrent resolves: if two requests hit the same track simultaneously,
-# only one yt-dlp process runs; both wait on the same Future
+# Search result cache: query → (result, expires_at)
+_search_cache: dict = {}
+SEARCH_TTL = 10 * 60  # 10 min
+
+# Dedup concurrent resolves
 _resolve_futures: dict = {}
 
 
@@ -52,13 +53,11 @@ FORMAT = "http_mp3_0_0/hls_mp3_0_0/bestaudio[ext=mp3]/bestaudio"
 
 
 async def resolve_url(url: str) -> str | None:
-    """Resolve SoundCloud URL → direct CDN URL. Uses in-memory cache to skip yt-dlp."""
-    # Check memory cache
+    """Resolve SoundCloud URL → direct CDN URL. Uses in-memory cache."""
     cached = _url_cache.get(url)
     if cached and time.time() < cached[1]:
         return cached[0]
 
-    # Dedup: if another coroutine is already resolving this URL, wait on it
     if url in _resolve_futures:
         return await asyncio.shield(_resolve_futures[url])
 
@@ -68,7 +67,7 @@ async def resolve_url(url: str) -> str | None:
 
     try:
         code, out, _ = await ytdlp(url, "--get-url", "--format", FORMAT,
-                                    "--no-playlist", "--no-warnings", "--quiet", timeout=15)
+                                    "--no-playlist", "--no-warnings", "--quiet", timeout=30)
         if code == 0 and out.strip():
             media_url = out.strip().split("\n")[0]
             _url_cache[url] = (media_url, time.time() + URL_TTL)
@@ -91,27 +90,7 @@ async def get_hls_segments(hls_url: str) -> list:
             if line.strip() and not line.startswith("#")]
 
 
-@app.get("/health")
-async def health():
-    return {"status": "ok"}
-
-
-@app.get("/search")
-async def search(q: str, limit: int = 10):
-    # Try twice — first attempt may fail on cold yt-dlp
-    for attempt in range(2):
-        try:
-            code, out, err = await ytdlp(f"scsearch{limit}:{q}",
-                "--dump-json", "--flat-playlist", "--no-warnings", "--quiet", timeout=45)
-        except Exception as e:
-            if attempt == 0: continue
-            return {"tracks": [], "error": f"ytdlp failed: {str(e)[:100]}"}
-        if code == 0 and out.strip():
-            break
-        if attempt == 0: continue
-        return {"tracks": [], "error": err[:100]}
-    if code != 0:
-        return {"tracks": [], "error": err[:100]}
+def parse_tracks(out: str) -> list:
     tracks = []
     for line in out.strip().split("\n"):
         if not line.strip():
@@ -136,28 +115,73 @@ async def search(q: str, limit: int = 10):
             })
         except Exception:
             continue
+    return tracks
+
+
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
+
+@app.get("/search")
+async def search(q: str, limit: int = 10):
+    # Check search cache first
+    cache_k = f"{q}:{limit}"
+    cached = _search_cache.get(cache_k)
+    if cached and time.time() < cached[1]:
+        return {"tracks": cached[0]}
+
+    for attempt in range(2):
+        try:
+            code, out, err = await ytdlp(f"scsearch{limit}:{q}",
+                "--dump-json", "--flat-playlist", "--no-warnings", "--quiet", timeout=45)
+        except Exception as e:
+            if attempt == 0: continue
+            return {"tracks": [], "error": f"ytdlp failed: {str(e)[:100]}"}
+        if code == 0 and out.strip():
+            break
+        if attempt == 0: continue
+        return {"tracks": [], "error": err[:100]}
+    if code != 0:
+        return {"tracks": [], "error": err[:100]}
+
+    tracks = parse_tracks(out)
+
+    # Cache search results
+    if tracks:
+        _search_cache[cache_k] = (tracks, time.time() + SEARCH_TTL)
+
     return {"tracks": tracks}
 
 
 @app.get("/resolve")
 async def resolve_endpoint(url: str):
-    """Warm up the URL cache — call this for upcoming tracks to eliminate yt-dlp wait."""
     media_url = await resolve_url(url)
     return {"ok": bool(media_url)}
+
+
+@app.post("/batch-resolve")
+async def batch_resolve(urls: list[str]):
+    """Resolve multiple URLs in parallel — warms cache for instant playback."""
+    async def _resolve_one(u):
+        try:
+            return await resolve_url(u)
+        except:
+            return None
+    results = await asyncio.gather(*[_resolve_one(u) for u in urls[:10]])
+    return {"resolved": sum(1 for r in results if r)}
 
 
 @app.get("/stream")
 async def stream(url: str):
     key = cache_key(url)
 
-    # 1. Serve from file cache instantly (FileResponse, ~10ms)
     cached = find_cached(key)
     if cached:
         return FileResponse(cached, media_type="audio/mpeg",
                             headers={"Accept-Ranges": "bytes",
                                      "Cache-Control": "public, max-age=3600"})
 
-    # 2. Resolve URL — instant if cached in memory, else ~1.5s via yt-dlp
     media_url = await resolve_url(url)
     if not media_url:
         raise HTTPException(404, "Cannot get stream URL")
@@ -166,7 +190,6 @@ async def stream(url: str):
     tmp_path = cache_path + ".part"
     is_hls = ".m3u8" in media_url or "/m3u8" in media_url
 
-    # 3. Stream to browser while saving to file cache
     async def generate():
         try:
             async with aiohttp.ClientSession() as s:
@@ -196,7 +219,6 @@ async def stream(url: str):
 
 @app.get("/preload")
 async def preload(url: str):
-    """Download and cache a track fully in the background."""
     key = cache_key(url)
     if find_cached(key):
         return {"status": "cached"}

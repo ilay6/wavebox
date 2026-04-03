@@ -36,12 +36,23 @@ function preloadTrack(track) {
   fetch(`${SERVER}/preload?url=${encodeURIComponent(track.url)}`).catch(() => {});
 }
 
+// Batch resolve — warms server cache for all tracks at once
+function batchResolve(tracks) {
+  const urls = tracks.map(t => t.url).filter(Boolean);
+  if (!urls.length) return;
+  fetch(`${SERVER}/batch-resolve`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(urls.slice(0, 10)),
+  }).catch(() => {});
+}
+
 // Called when a track list loads — resolve URLs for all visible tracks,
 // fully preload the first 3 so they play instantly
 export function prefetchTracks(tracks) {
   if (Platform.OS !== 'web' || !tracks?.length) return;
-  // Resolve URL for all tracks (fast, just warms server cache)
-  tracks.slice(0, 12).forEach(t => resolveTrack(t));
+  // Batch resolve all track URLs on server (single request)
+  batchResolve(tracks);
   // Fully download first 3
   tracks.slice(0, 3).forEach(t => preloadTrack(t));
 }
@@ -254,19 +265,21 @@ export function PlayerProvider({ children }) {
     setDuration(status.durationMillis / 1000 || 0);
     if (status.isPlaying !== undefined) setIsPlaying(status.isPlaying);
 
-    // Preload next track when 30s remaining
+    // Preload next tracks when 20s remaining
     if (status.durationMillis > 0) {
       const remaining = (status.durationMillis - status.positionMillis) / 1000;
-      if (remaining > 0 && remaining < 30) {
+      if (remaining > 0 && remaining < 20) {
         const q = queueRef.current;
         const cur = currentTrackRef.current;
         if (cur) {
           const idx = q.findIndex(t => t.id === cur.id);
-          if (idx >= 0 && idx < q.length - 1) {
+          if (idx >= 0) {
             const next = q[idx + 1];
             if (next && next.id !== preloadedIdRef.current) {
               preloadedIdRef.current = next.id;
               preloadTrack(next);
+              const next2 = q[idx + 2];
+              if (next2) resolveTrack(next2);
             }
           }
         }
@@ -320,13 +333,16 @@ export function PlayerProvider({ children }) {
 
       setLoading(false);
 
-      // Preload next 2 tracks immediately — so switching is instant
+      // Preload next 3 tracks immediately — so switching is instant
       const idx = q.findIndex(t => t.id === track.id);
       if (idx >= 0) {
-        const next1 = q[idx + 1];
-        const next2 = q[idx + 2];
-        if (next1) { preloadedIdRef.current = next1.id; preloadTrack(next1); }
-        if (next2) resolveTrack(next2); // resolve URL only, full download later
+        for (let i = 1; i <= 3; i++) {
+          const next = q[idx + i];
+          if (next) {
+            if (i <= 2) preloadTrack(next);  // fully download next 2
+            else resolveTrack(next);          // just resolve URL for 3rd
+          }
+        }
       }
     } catch (e) {
       console.log('playTrack error:', e);
