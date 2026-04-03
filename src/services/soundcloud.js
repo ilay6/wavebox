@@ -11,9 +11,9 @@ function fetchWithTimeout(url, timeoutMs = 55000) {
   return fetch(url, { signal: controller.signal }).finally(() => clearTimeout(timer));
 }
 
-// ─── Cache (session only — cleared on reload for fresh tracks) ───────────────
+// ─── Cache (session only) ────────────────────────────────────────────────────
 const cache = new Map();
-const CACHE_TTL = 5 * 60 * 1000; // 5 min within session only
+const CACHE_TTL = 10 * 60 * 1000; // 10 min — server caches too
 
 async function cachedFetch(key, fn) {
   const now = Date.now();
@@ -24,10 +24,16 @@ async function cachedFetch(key, fn) {
   return data || [];
 }
 
-// Pick a random item from array
 function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+function pick2(arr) {
+  const i = Math.floor(Math.random() * arr.length);
+  let j = Math.floor(Math.random() * (arr.length - 1));
+  if (j >= i) j++;
+  return [arr[i], arr[j]];
+}
+function shuffle(arr) { return [...arr].sort(() => Math.random() - 0.5); }
 
-// ─── Core search (single artist/query) ───────────────────────────────────────
+// ─── Core search ─────────────────────────────────────────────────────────────
 export async function searchTracks(query, limit = 5) {
   const url = `${SERVER}/search?q=${encodeURIComponent(query)}&limit=${limit}`;
   try {
@@ -41,57 +47,86 @@ export async function searchTracks(query, limit = 5) {
   }
 }
 
-// ─── Search multiple artists in parallel, mix results ────────────────────────
-async function searchMultiple(artists, limitEach = 3) {
-  const results = await Promise.all(artists.map(a => searchTracks(a, limitEach)));
-  // Interleave results: 1 from each artist, then 2nd from each, etc.
+// Search 2 queries in parallel, interleave and shuffle for variety
+async function search2Mix(q1, q2, limitEach = 5) {
+  const [r1, r2] = await Promise.all([
+    searchTracks(q1, limitEach),
+    searchTracks(q2, limitEach),
+  ]);
+  // Interleave
   const mixed = [];
-  const max = Math.max(...results.map(r => r.length));
+  const max = Math.max(r1.length, r2.length);
   for (let i = 0; i < max; i++) {
-    for (const arr of results) {
-      if (arr[i]) mixed.push(arr[i]);
-    }
+    if (r1[i]) mixed.push(r1[i]);
+    if (r2[i]) mixed.push(r2[i]);
   }
-  // Deduplicate by id
+  // Deduplicate
   const seen = new Set();
   return mixed.filter(t => { if (seen.has(t.id)) return false; seen.add(t.id); return true; });
 }
 
-// ─── Home sections ────────────────────────────────────────────────────────────
+// ─── Home sections — 2 artists per section for variety ───────────────────────
 
-// Artist-based queries — real artists give better results on SoundCloud
-const TRENDING_QUERIES = ['Drake', 'Travis Scott', 'Kendrick Lamar', 'Metro Boomin', 'Future'];
-const NEW_QUERIES = ['The Weeknd', 'Playboi Carti', 'Don Toliver', 'SZA', '21 Savage'];
-const RU_QUERIES = ['Скриптонит', 'Miyagi', 'Макс Корж', 'FACE', 'Oxxxymiron'];
-const CHILL_QUERIES = ['Lofi Girl', 'lo-fi beats', 'chillhop', 'nujabes'];
+const TRENDING_ARTISTS = [
+  'Drake', 'Travis Scott', 'Kendrick Lamar', 'Future', 'Metro Boomin',
+  'Playboi Carti', 'Lil Uzi Vert', 'Don Toliver', '21 Savage', 'Kanye West',
+  'Post Malone', 'Lil Baby', 'Gunna', 'Tyler the Creator', 'J. Cole',
+];
 
-export async function getTrending(limit = 15) {
-  const q = pick(TRENDING_QUERIES);
-  return cachedFetch(`trending_${q}`, () => searchTracks(q, limit));
+const NEW_ARTISTS = [
+  'The Weeknd', 'SZA', 'Doja Cat', 'Bad Bunny', 'Billie Eilish',
+  'Dua Lipa', 'Jack Harlow', 'Ice Spice', 'Central Cee', 'Offset',
+  'Frank Ocean', 'Daniel Caesar', 'Steve Lacy', 'Dominic Fike', 'Tame Impala',
+];
+
+const RU_ARTISTS = [
+  'Скриптонит', 'Miyagi', 'Макс Корж', 'FACE', 'Oxxxymiron',
+  'Элджей', 'Yanix', 'Boulevard Depo', 'Моргенштерн', 'Платина',
+  'Егор Крид', 'Тимати', 'Баста', 'Noize MC', 'Хаски',
+];
+
+const CHILL_ARTISTS = [
+  'Lofi Girl', 'nujabes', 'jinsang', 'idealism', 'tomppabeats',
+  'lo-fi beats', 'chillhop', 'jazz hop', 'Øneheart', 'Reidenshi',
+  'Shiloh Dynasty', 'bsd.u', 'Kupla', 'Mondo Loops', 'softy',
+];
+
+export async function getTrending(limit = 10) {
+  const [a1, a2] = pick2(TRENDING_ARTISTS);
+  return cachedFetch(`trending_${a1}_${a2}`, () => search2Mix(a1, a2, 5));
 }
 
 export async function getNewReleases(limit = 10) {
-  const q = pick(NEW_QUERIES);
-  return cachedFetch(`new_${q}`, () => searchTracks(q, limit));
+  const [a1, a2] = pick2(NEW_ARTISTS);
+  return cachedFetch(`new_${a1}_${a2}`, () => search2Mix(a1, a2, 5));
 }
 
 export async function getRussianTracks(limit = 10) {
-  const q = pick(RU_QUERIES);
-  return cachedFetch(`ru_${q}`, () => searchTracks(q, limit));
+  const [a1, a2] = pick2(RU_ARTISTS);
+  return cachedFetch(`ru_${a1}_${a2}`, () => search2Mix(a1, a2, 5));
 }
 
 export async function getChillTracks(limit = 10) {
-  const q = pick(CHILL_QUERIES);
-  return cachedFetch(`chill_${q}`, () => searchTracks(q, limit));
+  const [a1, a2] = pick2(CHILL_ARTISTS);
+  return cachedFetch(`chill_${a1}_${a2}`, () => search2Mix(a1, a2, 5));
 }
 
 export async function getRecommended(likedTracks = []) {
   if (likedTracks.length > 0) {
     const artists = [...new Set(likedTracks.map(t => t.user?.username).filter(Boolean))];
-    if (artists.length) return searchTracks(artists[0], 10);
+    if (artists.length >= 2) {
+      const [a1, a2] = pick2(artists);
+      return search2Mix(a1, a2, 5);
+    }
+    if (artists.length === 1) return searchTracks(artists[0], 10);
   }
-  const fallback = pick(['Drake', 'The Weeknd', 'Travis Scott', 'Kendrick Lamar', 'Скриптонит']);
-  return cachedFetch(`rec_${fallback}`, () => searchTracks(fallback, 10));
+  // Diverse fallback — mix genres
+  const [a1, a2] = pick2([
+    ...TRENDING_ARTISTS.slice(0, 5),
+    ...CHILL_ARTISTS.slice(0, 3),
+    ...RU_ARTISTS.slice(0, 3),
+  ]);
+  return cachedFetch(`rec_${a1}_${a2}`, () => search2Mix(a1, a2, 5));
 }
 
 export async function getTopTracks(genre = '', limit = 15) {
@@ -99,22 +134,6 @@ export async function getTopTracks(genre = '', limit = 15) {
     return cachedFetch(`genre_${genre}`, () => searchTracks(genre, limit));
   }
   return getTrending(limit);
-}
-
-export async function getStreamUrl(track) {
-  if (!track.url) return null;
-  try {
-    const res = await fetchWithTimeout(
-      `${SERVER}/stream?url=${encodeURIComponent(track.url)}`,
-      20000
-    );
-    if (!res.ok) throw new Error();
-    const data = await res.json();
-    return data.stream_url || null;
-  } catch (e) {
-    console.log('stream error:', e.message);
-    return null;
-  }
 }
 
 export function formatDuration(ms) {

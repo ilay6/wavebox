@@ -1,8 +1,8 @@
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  Animated, Image, ActivityIndicator
+  Animated, Image, ActivityIndicator, Platform
 } from 'react-native';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, memo } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import AnimatedBackground from '../components/AnimatedBackground';
@@ -82,14 +82,14 @@ function HCard({ track, onPress }) {
   );
 }
 
-// ── Animated wave bars ────────────────────────────────────────────────────────
+// ── Animated wave bars (lightweight — uses scaleY + nativeDriver) ─────────────
 function WaveBars() {
-  const bars = useRef(Array.from({ length: 14 }, () => new Animated.Value(Math.random()))).current;
+  const bars = useRef(Array.from({ length: 8 }, () => new Animated.Value(0.2 + Math.random() * 0.8))).current;
   useEffect(() => {
     bars.forEach(a => {
       Animated.loop(Animated.sequence([
-        Animated.timing(a, { toValue: Math.random() * 0.85 + 0.15, duration: 350 + Math.random() * 400, useNativeDriver: false }),
-        Animated.timing(a, { toValue: Math.random() * 0.2 + 0.05,  duration: 350 + Math.random() * 400, useNativeDriver: false }),
+        Animated.timing(a, { toValue: Math.random() * 0.85 + 0.15, duration: 400 + Math.random() * 500, useNativeDriver: true }),
+        Animated.timing(a, { toValue: Math.random() * 0.2 + 0.05,  duration: 400 + Math.random() * 500, useNativeDriver: true }),
       ])).start();
     });
   }, []);
@@ -97,9 +97,9 @@ function WaveBars() {
     <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 3, height: 42 }}>
       {bars.map((a, i) => (
         <Animated.View key={i} style={{
-          width: 3, borderRadius: 2, backgroundColor: colors.accent,
-          height: a.interpolate({ inputRange: [0,1], outputRange: [3, 42] }),
-          opacity: a.interpolate({ inputRange: [0,1], outputRange: [0.2, 0.7] }),
+          width: 3, height: 42, borderRadius: 2, backgroundColor: colors.accent,
+          opacity: a,
+          transform: [{ scaleY: a }],
         }} />
       ))}
     </View>
@@ -131,13 +131,18 @@ export default function HomeScreen({ navigation }) {
   }, []);
 
   async function loadAll() {
-    // Load in pairs — Render free tier can handle 2 parallel yt-dlp
-    const [n, t] = await Promise.all([getNewReleases(10), getTrending(15)]);
+    // Each section fetches 2 artists via search2Mix (parallel on server).
+    // Sections load sequentially so server handles ~2 yt-dlp at a time.
+    const n = await getNewReleases(10);
     setNewTracks(n); setLNew(false); prefetchTracks(n);
+
+    const t = await getTrending(10);
     setTrending(t); setGenreTracks(t); setLTrend(false); prefetchTracks(t);
 
-    const [r, c] = await Promise.all([getRussianTracks(10), getChillTracks(10)]);
+    const r = await getRussianTracks(10);
     setRussian(r); setLRu(false); prefetchTracks(r);
+
+    const c = await getChillTracks(10);
     setChill(c); setLChill(false); prefetchTracks(c);
   }
 

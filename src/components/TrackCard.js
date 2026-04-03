@@ -75,8 +75,8 @@ function PlayingIndicator() {
   useEffect(() => {
     bars.forEach((bar, i) => {
       Animated.loop(Animated.sequence([
-        Animated.timing(bar, { toValue: 1,   duration: 300 + i * 100, useNativeDriver: false }),
-        Animated.timing(bar, { toValue: 0.2, duration: 300 + i * 100, useNativeDriver: false }),
+        Animated.timing(bar, { toValue: 1,   duration: 300 + i * 100, useNativeDriver: true }),
+        Animated.timing(bar, { toValue: 0.2, duration: 300 + i * 100, useNativeDriver: true }),
       ])).start();
     });
   }, []);
@@ -84,8 +84,9 @@ function PlayingIndicator() {
     <View style={styles.playIndicator}>
       {bars.map((bar, i) => (
         <Animated.View key={i} style={[styles.playBar, {
-          height: bar.interpolate({ inputRange: [0, 1], outputRange: [3, 14] }),
+          height: 14,
           backgroundColor: colors.accent,
+          transform: [{ scaleY: bar }],
         }]} />
       ))}
     </View>
