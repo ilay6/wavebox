@@ -1,17 +1,14 @@
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  Animated, Image, ActivityIndicator, Platform
+  Animated, Image, ActivityIndicator
 } from 'react-native';
-import { useState, useEffect, useRef, memo } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import AnimatedBackground from '../components/AnimatedBackground';
 import TrackCard from '../components/TrackCard';
 import { colors } from '../theme';
-import {
-  getTrending, getNewReleases, getRussianTracks,
-  getChillTracks, getTopTracks
-} from '../services/soundcloud';
+import { getCatalog, getTopTracks } from '../services/soundcloud';
 import { usePlayer } from '../store/player';
 
 const GENRES = ['All','Hip-Hop','Lo-Fi','Synthwave','Ambient','Indie','Techno','Jazz'];
@@ -131,26 +128,17 @@ export default function HomeScreen({ navigation }) {
   }, []);
 
   async function loadAll() {
-    // Load one section at a time — Render free tier can only handle 1-2 yt-dlp
     try {
-      const n = await getNewReleases();
-      setNewTracks(n); setLNew(false); prefetchTracks(n);
-    } catch(e) { setLNew(false); }
-
-    try {
-      const t = await getTrending();
-      setTrending(t); setGenreTracks(t); setLTrend(false); prefetchTracks(t);
-    } catch(e) { setLTrend(false); }
-
-    try {
-      const r = await getRussianTracks();
-      setRussian(r); setLRu(false); prefetchTracks(r);
-    } catch(e) { setLRu(false); }
-
-    try {
-      const c = await getChillTracks();
-      setChill(c); setLChill(false); prefetchTracks(c);
-    } catch(e) { setLChill(false); }
+      // Single request gets ALL sections (~200ms with SoundCloud API)
+      const cat = await getCatalog();
+      if (cat.new?.length)      { setNewTracks(cat.new);      prefetchTracks(cat.new); }
+      if (cat.trending?.length) { setTrending(cat.trending);  setGenreTracks(cat.trending); prefetchTracks(cat.trending); }
+      if (cat.russian?.length)  { setRussian(cat.russian);    prefetchTracks(cat.russian); }
+      if (cat.chill?.length)    { setChill(cat.chill);        prefetchTracks(cat.chill); }
+    } catch(e) {
+      console.warn('[Home] catalog failed:', e.message);
+    }
+    setLNew(false); setLTrend(false); setLRu(false); setLChill(false);
   }
 
   async function handleGenre(g) {
