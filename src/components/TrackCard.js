@@ -35,7 +35,7 @@ export default function TrackCard({ track, onPress, showIndex, index }) {
 
         <View style={styles.artwork}>
           {track.artwork_url
-            ? <Image source={{ uri: track.artwork_url }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+            ? <Image source={{ uri: track.artwork_url }} style={{ width: 48, height: 48, borderRadius: 10 }} resizeMode="cover" />
             : <Ionicons name="musical-note" size={18} color={colors.textMuted} />
           }
           {isActive && (

@@ -103,7 +103,7 @@ const styles = StyleSheet.create({
 
   artWrap: { width: 42, height: 42, borderRadius: 21, overflow: 'hidden',
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)' },
-  artwork: { width: '100%', height: '100%' },
+  artwork: { width: 42, height: 42, borderRadius: 21 },
   artFallback: { backgroundColor: 'rgba(255,255,255,0.06)', alignItems: 'center', justifyContent: 'center' },
 
   info: { flex: 1 },

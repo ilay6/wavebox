@@ -62,7 +62,7 @@ function HCard({ track, onPress }) {
     <TouchableOpacity style={hS.card} onPress={onPress} activeOpacity={0.8}>
       <View style={hS.art}>
         {track.artwork_url
-          ? <Image source={{ uri: track.artwork_url }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+          ? <Image source={{ uri: track.artwork_url }} style={{ width: 152, height: 152 }} resizeMode="cover" />
           : <View style={hS.artFallback}><Ionicons name="musical-note" size={26} color={colors.textMuted} /></View>
         }
         {/* Bottom gradient + title */}

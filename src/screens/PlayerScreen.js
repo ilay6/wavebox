@@ -270,8 +270,8 @@ const S = StyleSheet.create({
     ...StyleSheet.absoluteFillObject, borderRadius: ART_SIZE / 2,
     borderWidth: 5, borderColor: 'rgba(255,255,255,0.06)',
   },
-  artImg:     { width: '100%', height: '100%' },
-  artFallback:{ width: '100%', height: '100%', backgroundColor: '#111', alignItems: 'center', justifyContent: 'center' },
+  artImg:     { width: ART_SIZE, height: ART_SIZE, borderRadius: ART_SIZE / 2 },
+  artFallback:{ width: ART_SIZE, height: ART_SIZE, borderRadius: ART_SIZE / 2, backgroundColor: '#111', alignItems: 'center', justifyContent: 'center' },
   discHole: {
     position: 'absolute', width: 16, height: 16, borderRadius: 8,
     backgroundColor: 'rgba(6,6,8,0.92)',
