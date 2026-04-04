@@ -66,7 +66,7 @@ function HCard({ track, onPress }) {
           : <View style={hS.artFallback}><Ionicons name="musical-note" size={26} color={colors.textMuted} /></View>
         }
         {/* Bottom gradient + title */}
-        <LinearGradient colors={['transparent','rgba(6,5,14,0.92)']} style={hS.overlay}>
+        <LinearGradient colors={['transparent','rgba(8,8,8,0.92)']} style={hS.overlay}>
           <Text style={hS.artTitle} numberOfLines={2}>{track.title}</Text>
           <Text style={hS.artArtist} numberOfLines={1}>{track.user?.username}</Text>
         </LinearGradient>
@@ -186,7 +186,7 @@ export default function HomeScreen({ navigation }) {
             {heroTrack.artwork_url && (
               <Image source={{ uri: heroTrack.artwork_url }} style={S.heroBg} resizeMode="cover" />
             )}
-            <LinearGradient colors={['transparent','rgba(6,5,14,0.97)']} style={S.heroGrad}>
+            <LinearGradient colors={['transparent','rgba(8,8,8,0.97)']} style={S.heroGrad}>
               <Text style={S.heroTag}>FEATURED</Text>
               <Text style={S.heroName} numberOfLines={2}>{heroTrack.title}</Text>
               <Text style={S.heroArtist}>{heroTrack.user?.username}</Text>
