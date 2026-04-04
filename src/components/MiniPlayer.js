@@ -1,6 +1,8 @@
 import { View, Text, TouchableOpacity, StyleSheet, Animated, Easing, Image, Platform } from 'react-native';
-import { useEffect, useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Ionicons } from '@expo/vector-icons';
+
+const isWeb = Platform.OS === 'web';
 
 import { colors } from '../theme';
 import { usePlayer } from '../store/player';
@@ -49,8 +51,8 @@ export default function MiniPlayer({ onPress }) {
         {/* Rotating artwork */}
         <Animated.View style={[styles.artWrap, { transform: [{ rotate }] }]}>
           {artwork
-            ? (Platform.OS === 'web'
-                ? <img src={artwork} style={{ width: 42, height: 42, borderRadius: 21, objectFit: 'cover', display: 'block' }} />
+            ? (isWeb
+                ? React.createElement('img', { src: artwork, style: { width: 42, height: 42, borderRadius: 21, objectFit: 'cover', display: 'block' } })
                 : <Image source={{ uri: artwork }} style={styles.artwork} resizeMode="cover" />)
             : <View style={[styles.artwork, styles.artFallback]}>
                 <Ionicons name="musical-note" size={16} color={colors.textMuted} />

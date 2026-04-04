@@ -2,7 +2,9 @@ import {
   View, Text, TouchableOpacity, StyleSheet, Dimensions,
   Animated, Easing, Image, Platform
 } from 'react-native';
-import { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+
+const isWeb = Platform.OS === 'web';
 import { Ionicons } from '@expo/vector-icons';
 import { usePlayer } from '../store/player';
 import { formatDuration } from '../services/soundcloud';
@@ -129,8 +131,8 @@ export default function PlayerScreen({ onClose }) {
   return (
     <Animated.View style={[S.card, { opacity: fadeIn, transform: [{ translateY: slideIn }] }]}>
       {/* Blurred artwork bg */}
-      {artwork && (Platform.OS === 'web'
-        ? <img src={artwork} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover', filter: 'blur(60px)' }} />
+      {artwork && (isWeb
+        ? React.createElement('img', { src: artwork, style: { position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover', filter: 'blur(60px)' } })
         : <Image source={{ uri: artwork }} style={S.bgArt} blurRadius={60} resizeMode="cover" />)}
       <View style={S.bgOverlay} />
       {Platform.OS === 'web' && <View style={S.webBlur} />}
@@ -153,8 +155,8 @@ export default function PlayerScreen({ onClose }) {
         <Animated.View style={[S.artWrap, { transform: [{ scale: artScale }, { rotate }] }]}>
           <View style={S.discRing} />
           {artwork
-            ? (Platform.OS === 'web'
-                ? <img src={artwork} style={{ width: ART_SIZE, height: ART_SIZE, borderRadius: ART_SIZE / 2, objectFit: 'cover', display: 'block' }} />
+            ? (isWeb
+                ? React.createElement('img', { src: artwork, style: { width: ART_SIZE, height: ART_SIZE, borderRadius: ART_SIZE / 2, objectFit: 'cover', display: 'block' } })
                 : <Image source={{ uri: artwork }} style={S.artImg} resizeMode="cover" />)
             : <View style={S.artFallback}><Ionicons name="musical-note" size={36} color="rgba(255,255,255,0.15)" /></View>
           }
