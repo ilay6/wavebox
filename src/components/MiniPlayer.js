@@ -49,7 +49,9 @@ export default function MiniPlayer({ onPress }) {
         {/* Rotating artwork */}
         <Animated.View style={[styles.artWrap, { transform: [{ rotate }] }]}>
           {artwork
-            ? <Image source={{ uri: artwork }} style={styles.artwork} resizeMode="cover" />
+            ? (Platform.OS === 'web'
+                ? <img src={artwork} style={{ width: 42, height: 42, borderRadius: 21, objectFit: 'cover', display: 'block' }} />
+                : <Image source={{ uri: artwork }} style={styles.artwork} resizeMode="cover" />)
             : <View style={[styles.artwork, styles.artFallback]}>
                 <Ionicons name="musical-note" size={16} color={colors.textMuted} />
               </View>

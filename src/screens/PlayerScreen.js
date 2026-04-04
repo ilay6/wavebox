@@ -129,7 +129,9 @@ export default function PlayerScreen({ onClose }) {
   return (
     <Animated.View style={[S.card, { opacity: fadeIn, transform: [{ translateY: slideIn }] }]}>
       {/* Blurred artwork bg */}
-      {artwork && <Image source={{ uri: artwork }} style={S.bgArt} blurRadius={60} resizeMode="cover" />}
+      {artwork && (Platform.OS === 'web'
+        ? <img src={artwork} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover', filter: 'blur(60px)' }} />
+        : <Image source={{ uri: artwork }} style={S.bgArt} blurRadius={60} resizeMode="cover" />)}
       <View style={S.bgOverlay} />
       {Platform.OS === 'web' && <View style={S.webBlur} />}
 
@@ -151,7 +153,9 @@ export default function PlayerScreen({ onClose }) {
         <Animated.View style={[S.artWrap, { transform: [{ scale: artScale }, { rotate }] }]}>
           <View style={S.discRing} />
           {artwork
-            ? <Image source={{ uri: artwork }} style={S.artImg} resizeMode="cover" />
+            ? (Platform.OS === 'web'
+                ? <img src={artwork} style={{ width: ART_SIZE, height: ART_SIZE, borderRadius: ART_SIZE / 2, objectFit: 'cover', display: 'block' }} />
+                : <Image source={{ uri: artwork }} style={S.artImg} resizeMode="cover" />)
             : <View style={S.artFallback}><Ionicons name="musical-note" size={36} color="rgba(255,255,255,0.15)" /></View>
           }
           <View style={S.discHole} />

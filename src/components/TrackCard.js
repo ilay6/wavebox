@@ -1,6 +1,8 @@
-import { View, Text, TouchableOpacity, StyleSheet, Animated, Image } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Animated, Image, Platform } from 'react-native';
 import { useRef, useEffect } from 'react';
 import { Ionicons } from '@expo/vector-icons';
+
+const isWeb = Platform.OS === 'web';
 
 import { colors } from '../theme';
 import { formatDuration } from '../services/soundcloud';
@@ -35,7 +37,9 @@ export default function TrackCard({ track, onPress, showIndex, index }) {
 
         <View style={styles.artwork}>
           {track.artwork_url
-            ? <Image source={{ uri: track.artwork_url }} style={{ width: 48, height: 48, borderRadius: 10 }} resizeMode="cover" />
+            ? (isWeb
+                ? <img src={track.artwork_url} style={{ width: 48, height: 48, borderRadius: 10, objectFit: 'cover', display: 'block' }} />
+                : <Image source={{ uri: track.artwork_url }} style={{ width: 48, height: 48, borderRadius: 10 }} resizeMode="cover" />)
             : <Ionicons name="musical-note" size={18} color={colors.textMuted} />
           }
           {isActive && (
