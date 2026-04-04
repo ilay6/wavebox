@@ -143,7 +143,7 @@ const S = StyleSheet.create({
   },
   tabBarBg: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(6,6,10,0.85)',
+    backgroundColor: 'rgba(8,8,8,0.85)',
     borderTopWidth: 1,
     borderTopColor: 'rgba(255,255,255,0.06)',
   },

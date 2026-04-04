@@ -281,7 +281,7 @@ const S = StyleSheet.create({
     position: 'absolute', top: 0, left: 0, right: 0, zIndex: 100,
     height: 88, paddingTop: 48, alignItems: 'center', justifyContent: 'flex-end', paddingBottom: 12,
   },
-  stickyBg: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(6,6,10,0.88)' },
+  stickyBg: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(8,8,8,0.88)' },
   stickyTitle: { color: colors.white, fontSize: 15, fontWeight: '700', letterSpacing: 0.5 },
 
   header: { paddingTop: 62, paddingHorizontal: 20, paddingBottom: 16 },
