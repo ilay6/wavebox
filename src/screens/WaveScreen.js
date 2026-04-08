@@ -266,9 +266,31 @@ export default function WaveScreen() {
   async function handleStart() {
     setLoading(true);
     try {
+      // Get tracks from 3 separate searches for maximum variety
       const likedArr = Array.from(liked).map(id => ({ id, user: { username: '' } }));
-      const waveTracks = await getRecommended(likedArr);
-      const shuffled = waveTracks.sort(() => Math.random() - 0.5);
+      const [r1, r2, r3] = await Promise.all([
+        getRecommended(likedArr),
+        getRecommended([]),
+        getRecommended([]),
+      ]);
+      // Merge and dedupe
+      const seen = new Set();
+      const all = [];
+      for (const t of [...r1, ...r2, ...r3]) {
+        if (!seen.has(t.id)) { seen.add(t.id); all.push(t); }
+      }
+      // Shuffle ensuring no consecutive same artist
+      const shuffled = [];
+      const pool = [...all];
+      while (pool.length > 0) {
+        const lastArtist = shuffled.length ? shuffled[shuffled.length - 1].user?.username : null;
+        const candidates = pool.filter(t => t.user?.username !== lastArtist);
+        const pick = candidates.length > 0 ? candidates : pool;
+        const idx = Math.floor(Math.random() * pick.length);
+        const track = pick[idx];
+        shuffled.push(track);
+        pool.splice(pool.indexOf(track), 1);
+      }
       setActive(true);
       if (shuffled.length) playTrack(shuffled[0], shuffled);
     } finally {

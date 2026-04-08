@@ -4,16 +4,12 @@ import { Ionicons } from '@expo/vector-icons';
 
 const isWeb = Platform.OS === 'web';
 
-function artUrl(url) {
-  if (!url) return url;
-  if (!isWeb) return url.replace('-t500x500', '-t200x200');
-  return url;
-}
-
-function WebImg({ src, width, height, borderRadius }) {
-  const finalSrc = artUrl(src);
-  if (!isWeb) return <Image source={{ uri: finalSrc }} style={{ width, height, borderRadius }} resizeMode="cover" />;
-  return React.createElement('img', { src: finalSrc, loading: 'lazy', style: { width, height, borderRadius, objectFit: 'cover', display: 'block' } });
+function ArtImg({ src, width, height, borderRadius }) {
+  if (!src) return null;
+  if (isWeb) {
+    return <View style={{ width, height, borderRadius, backgroundImage: `url(${src})`, backgroundSize: 'cover', backgroundPosition: 'center' }} />;
+  }
+  return <Image source={{ uri: src.replace('-t500x500', '-t200x200') }} style={{ width, height, borderRadius }} resizeMode="cover" />;
 }
 
 import { colors } from '../theme';
@@ -49,7 +45,7 @@ export default function TrackCard({ track, onPress, showIndex, index }) {
 
         <View style={styles.artwork}>
           {track.artwork_url
-            ? <WebImg src={track.artwork_url} width={48} height={48} borderRadius={10} />
+            ? <ArtImg src={track.artwork_url} width={48} height={48} borderRadius={10} />
             : <Ionicons name="musical-note" size={18} color={colors.textMuted} />
           }
           {isActive && (

@@ -52,7 +52,7 @@ export default function MiniPlayer({ onPress }) {
         <Animated.View style={[styles.artWrap, { transform: [{ rotate }] }]}>
           {artwork
             ? (isWeb
-                ? React.createElement('img', { src: artwork, style: { width: 42, height: 42, borderRadius: 21, objectFit: 'cover', display: 'block' } })
+                ? <View style={{ width: 42, height: 42, borderRadius: 21, backgroundImage: `url(${artwork})`, backgroundSize: 'cover', backgroundPosition: 'center' }} />
                 : <Image source={{ uri: artwork }} style={styles.artwork} resizeMode="cover" />)
             : <View style={[styles.artwork, styles.artFallback]}>
                 <Ionicons name="musical-note" size={16} color={colors.textMuted} />

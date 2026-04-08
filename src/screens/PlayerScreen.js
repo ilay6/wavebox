@@ -132,7 +132,7 @@ export default function PlayerScreen({ onClose }) {
     <Animated.View style={[S.card, { opacity: fadeIn, transform: [{ translateY: slideIn }] }]}>
       {/* Blurred artwork bg */}
       {artwork && (isWeb
-        ? React.createElement('img', { src: artwork, style: { position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover', filter: 'blur(60px)' } })
+        ? <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundImage: `url(${artwork})`, backgroundSize: 'cover', backgroundPosition: 'center', filter: 'blur(60px)' }} />
         : <Image source={{ uri: artwork }} style={S.bgArt} blurRadius={60} resizeMode="cover" />)}
       <View style={S.bgOverlay} />
       {Platform.OS === 'web' && <View style={S.webBlur} />}
@@ -156,7 +156,7 @@ export default function PlayerScreen({ onClose }) {
           <View style={S.discRing} />
           {artwork
             ? (isWeb
-                ? React.createElement('img', { src: artwork, style: { width: ART_SIZE, height: ART_SIZE, borderRadius: ART_SIZE / 2, objectFit: 'cover', display: 'block' } })
+                ? <View style={{ width: ART_SIZE, height: ART_SIZE, borderRadius: ART_SIZE / 2, backgroundImage: `url(${artwork})`, backgroundSize: 'cover', backgroundPosition: 'center' }} />
                 : <Image source={{ uri: artwork }} style={S.artImg} resizeMode="cover" />)
             : <View style={S.artFallback}><Ionicons name="musical-note" size={36} color="rgba(255,255,255,0.15)" /></View>
           }
@@ -254,7 +254,7 @@ const S = StyleSheet.create({
     paddingBottom: 14,
   },
   bgArt:    { ...StyleSheet.absoluteFillObject, opacity: 0.22 },
-  bgOverlay:{ ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(6,6,8,0.78)' },
+  bgOverlay:{ ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(8,8,8,0.78)' },
   webBlur: Platform.OS === 'web' ? {
     ...StyleSheet.absoluteFillObject,
     backdropFilter: 'blur(48px)', WebkitBackdropFilter: 'blur(48px)',

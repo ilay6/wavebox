@@ -7,28 +7,20 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 
 const isWeb = Platform.OS === 'web';
-const isMobile = !isWeb;
+const isMobile = !isWeb || (typeof window !== 'undefined' && window.innerWidth < 768);
 
-// Use smaller images on mobile to save memory/bandwidth
-function artUrl(url) {
-  if (!url) return url;
-  if (isMobile) return url.replace('-t500x500', '-t200x200');
-  return url;
-}
-
-// Native HTML <img> for web — RN Web's Image uses div+background-image which can fail
-function WebImg({ src, width, height, borderRadius, style: extra }) {
-  const finalSrc = artUrl(src);
-  if (!isWeb) return <Image source={{ uri: finalSrc }} style={{ width, height, borderRadius }} resizeMode="cover" />;
-  return React.createElement('img', {
-    src: finalSrc,
-    loading: 'lazy',
-    style: {
+// Artwork component — uses CSS background-image on web (most reliable)
+function ArtImg({ src, width, height, borderRadius }) {
+  if (!src) return null;
+  if (isWeb) {
+    return <View style={{
       width, height, borderRadius,
-      objectFit: 'cover', display: 'block',
-      ...extra,
-    },
-  });
+      backgroundImage: `url(${src})`,
+      backgroundSize: 'cover',
+      backgroundPosition: 'center',
+    }} />;
+  }
+  return <Image source={{ uri: src.replace('-t500x500', '-t200x200') }} style={{ width, height, borderRadius }} resizeMode="cover" />;
 }
 import AnimatedBackground from '../components/AnimatedBackground';
 import TrackCard from '../components/TrackCard';
@@ -96,7 +88,7 @@ function HCard({ track, onPress }) {
     <TouchableOpacity style={hS.card} onPress={onPress} activeOpacity={0.8}>
       <View style={hS.art}>
         {track.artwork_url
-          ? <WebImg src={track.artwork_url} width={152} height={152} />
+          ? <ArtImg src={track.artwork_url} width={152} height={152} />
           : <View style={hS.artFallback}><Ionicons name="musical-note" size={26} color={colors.textMuted} /></View>
         }
         {/* Bottom gradient + title */}
@@ -214,7 +206,7 @@ export default function HomeScreen({ navigation }) {
           <TouchableOpacity style={S.hero} onPress={() => playTrack(heroTrack, catalog.new || [])} activeOpacity={0.88}>
             {heroTrack.artwork_url && (
               isWeb
-                ? React.createElement('img', { src: heroTrack.artwork_url, style: { position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover' } })
+                ? <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundImage: `url(${heroTrack.artwork_url})`, backgroundSize: 'cover', backgroundPosition: 'center' }} />
                 : <Image source={{ uri: heroTrack.artwork_url }} style={S.heroBg} resizeMode="cover" />
             )}
             <LinearGradient colors={['transparent','rgba(8,8,8,0.97)']} style={S.heroGrad}>
