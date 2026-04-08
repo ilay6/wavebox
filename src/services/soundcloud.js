@@ -1,60 +1,87 @@
-// WaveBox music service — uses server with SoundCloud API
+// WaveBox music service v3 — instant catalog + localStorage cache
 const isLocal = typeof window !== 'undefined' &&
   (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
 const SERVER = process.env.EXPO_PUBLIC_API_URL ||
   (isLocal ? 'http://localhost:8888' : 'https://wavebox-w3ft.onrender.com');
 
-// Wake up Render server immediately on page load (free tier sleeps after 15min)
+// Wake up server on page load
 if (typeof window !== 'undefined') {
   fetch(`${SERVER}/health`).catch(() => {});
 }
 
-function fetchWithTimeout(url, timeoutMs = 30000) {
+function fetchWithTimeout(url, timeoutMs = 20000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   return fetch(url, { signal: controller.signal }).finally(() => clearTimeout(timer));
 }
 
-// ─── Catalog: get ALL home sections in one request (~200ms) ─────────────────
-let _catalogCache = null;
-let _catalogTs = 0;
-const CATALOG_TTL = 2 * 60 * 1000; // re-fetch after 2 min
+// ─── localStorage catalog cache ─────────────────────────────────────────────
+const STORAGE_KEY = 'wavebox_catalog_v3';
+const STORAGE_TTL = 30 * 60 * 1000; // 30 min — use cached data for up to 30 min
+
+function loadCachedCatalog() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    if (Date.now() - data._savedAt > STORAGE_TTL) return null;
+    return data;
+  } catch { return null; }
+}
+
+function saveCatalog(catalog) {
+  try {
+    catalog._savedAt = Date.now();
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(catalog));
+  } catch {}
+}
+
+// ─── Catalog: instant from cache, fresh from server ─────────────────────────
+let _liveCatalog = null;
 
 export async function getCatalog() {
-  const now = Date.now();
-  if (_catalogCache && now - _catalogTs < CATALOG_TTL) return _catalogCache;
+  // 1. Return localStorage cache instantly if available
+  const cached = loadCachedCatalog();
+  if (cached && (cached.new?.length || cached.trending?.length)) {
+    // Refresh from server in background (don't await)
+    _refreshCatalog();
+    return cached;
+  }
+
+  // 2. No cache — fetch from server (first visit or expired)
+  return await _refreshCatalog();
+}
+
+async function _refreshCatalog() {
   try {
     const res = await fetchWithTimeout(`${SERVER}/catalog`);
     if (!res.ok) throw new Error(`${res.status}`);
     const data = await res.json();
-    // Only cache if we got actual tracks
     if (data.new?.length || data.trending?.length) {
-      _catalogCache = data;
-      _catalogTs = now;
+      _liveCatalog = data;
+      saveCatalog(data);
+      return data;
     }
-    return data;
   } catch (e) {
-    console.warn('[WaveBox] catalog failed:', e.message);
-    return { new: [], trending: [], russian: [], chill: [] };
+    console.warn('[WaveBox] catalog fetch failed:', e.message);
   }
+  return _liveCatalog || { new: [], trending: [], russian: [], chill: [] };
 }
 
-// ─── Core search (for genre buttons, wave, manual search) ───────────────────
+// ─── Search ─────────────────────────────────────────────────────────────────
 const searchCache = new Map();
-const SEARCH_CACHE_TTL = 2 * 60 * 1000;
 
-export async function searchTracks(query, limit = 5) {
+export async function searchTracks(query, limit = 10) {
   const key = `${query}:${limit}`;
   const hit = searchCache.get(key);
-  if (hit && Date.now() - hit.ts < SEARCH_CACHE_TTL) return hit.data;
+  if (hit && Date.now() - hit.ts < 120000) return hit.data;
 
-  const url = `${SERVER}/search?q=${encodeURIComponent(query)}&limit=${limit}`;
   try {
-    const res = await fetchWithTimeout(url);
-    if (!res.ok) throw new Error(`server ${res.status}`);
+    const res = await fetchWithTimeout(`${SERVER}/search?q=${encodeURIComponent(query)}&limit=${limit}`);
+    if (!res.ok) throw new Error(`${res.status}`);
     const data = await res.json();
     const tracks = data.tracks || [];
-    if (tracks.length > 0) searchCache.set(key, { data: tracks, ts: Date.now() });
+    if (tracks.length) searchCache.set(key, { data: tracks, ts: Date.now() });
     return tracks;
   } catch (e) {
     console.warn('[WaveBox] search failed:', query, e.message);
@@ -123,7 +150,6 @@ export async function getTopTracks(genre = '', limit = 15) {
   return searchTracks('trending music', limit);
 }
 
-// "My Wave" — search based on liked artists or random mix
 export async function getRecommended(likedTracks = []) {
   if (likedTracks.length > 0) {
     const artists = [...new Set(likedTracks.map(t => t.user?.username).filter(Boolean))];

@@ -1,6 +1,5 @@
 """
-WaveBox server — SoundCloud direct API + yt-dlp fallback
-Searches via SoundCloud API (~200ms) instead of yt-dlp subprocess (7-32s)
+WaveBox server v3 — SoundCloud direct API, pre-resolved CDN URLs, instant playback
 """
 import os, asyncio, json, hashlib, tempfile, time, re, random
 import aiohttp
@@ -16,19 +15,16 @@ YT_DLP = os.environ.get("YTDLP_PATH", "yt-dlp")
 CACHE_DIR = os.path.join(tempfile.gettempdir(), "wavebox_v4")
 os.makedirs(CACHE_DIR, exist_ok=True)
 
-# ── SoundCloud client_id management ──────────────────────────────────────────
+# ── SoundCloud client_id ─────────────────────────────────────────────────────
 _sc_client_id: str | None = None
 _sc_client_id_ts: float = 0
-SC_CLIENT_ID_TTL = 3600  # refresh every hour
 
 async def _extract_client_id() -> str | None:
-    """Extract client_id from SoundCloud's JS bundles."""
     try:
         async with aiohttp.ClientSession() as s:
             async with s.get("https://soundcloud.com", timeout=aiohttp.ClientTimeout(total=15)) as r:
                 html = await r.text()
             scripts = re.findall(r'src="(https://a-v2\.sndcdn\.com/assets/[^"]+\.js)"', html)
-            # Check last 5 scripts (client_id is usually in one of the last bundles)
             for script_url in reversed(scripts[-6:]):
                 try:
                     async with s.get(script_url, timeout=aiohttp.ClientTimeout(total=10)) as r:
@@ -42,10 +38,9 @@ async def _extract_client_id() -> str | None:
         print(f"[SC] client_id extraction failed: {e}")
     return None
 
-
 async def get_client_id() -> str | None:
     global _sc_client_id, _sc_client_id_ts
-    if _sc_client_id and time.time() - _sc_client_id_ts < SC_CLIENT_ID_TTL:
+    if _sc_client_id and time.time() - _sc_client_id_ts < 3600:
         return _sc_client_id
     cid = await _extract_client_id()
     if cid:
@@ -55,54 +50,56 @@ async def get_client_id() -> str | None:
     return _sc_client_id
 
 
-# ── SoundCloud direct API search ─────────────────────────────────────────────
+# ── SoundCloud API ───────────────────────────────────────────────────────────
 async def sc_api_search(query: str, limit: int = 10) -> list:
-    """Search SoundCloud via API — ~200ms vs 7-32s with yt-dlp."""
     cid = await get_client_id()
     if not cid:
         return []
-    url = (f"https://api-v2.soundcloud.com/search/tracks"
-           f"?q={query}&client_id={cid}&limit={limit}&offset=0")
-    async with aiohttp.ClientSession() as s:
-        async with s.get(url, timeout=aiohttp.ClientTimeout(total=10)) as r:
-            if r.status != 200:
-                return []
-            data = await r.json()
+    url = f"https://api-v2.soundcloud.com/search/tracks?q={query}&client_id={cid}&limit={limit}&offset=0"
+    try:
+        async with aiohttp.ClientSession() as s:
+            async with s.get(url, timeout=aiohttp.ClientTimeout(total=10)) as r:
+                if r.status != 200:
+                    return []
+                data = await r.json()
+    except Exception:
+        return []
     tracks = []
     for item in data.get("collection", []):
         artwork = item.get("artwork_url") or ""
         if artwork:
             artwork = artwork.replace("-large", "-t500x500")
         purl = item.get("permalink_url", "")
-        if not purl:
+        dur = item.get("duration", 0)
+        # Quality filter: need artwork + URL + at least 30s
+        if not purl or not artwork or dur < 30000:
             continue
         tracks.append({
             "id": str(item.get("id", "")),
             "title": item.get("title", "Unknown"),
             "user": {"username": (item.get("user") or {}).get("username", "Unknown")},
-            "duration": item.get("duration", 0),
+            "duration": dur,
             "artwork_url": artwork,
             "url": purl,
+            "plays": item.get("playback_count", 0) or 0,
         })
+    # Sort by play count — most popular first
+    tracks.sort(key=lambda t: t["plays"], reverse=True)
     return tracks
 
 
 async def sc_api_resolve(track_url: str) -> str | None:
-    """Resolve SoundCloud track URL → direct stream URL via API."""
     cid = await get_client_id()
     if not cid:
         return None
     try:
         async with aiohttp.ClientSession() as s:
-            # Resolve track URL to track data
             resolve = f"https://api-v2.soundcloud.com/resolve?url={track_url}&client_id={cid}"
             async with s.get(resolve, timeout=aiohttp.ClientTimeout(total=10)) as r:
                 if r.status != 200:
                     return None
                 data = await r.json()
-            # Get stream URL from transcodings
             transcodings = (data.get("media") or {}).get("transcodings") or []
-            # Prefer progressive (direct MP3), then HLS
             progressive = None
             hls = None
             for t in transcodings:
@@ -126,44 +123,33 @@ async def sc_api_resolve(track_url: str) -> str | None:
 
 
 # ── Caching ──────────────────────────────────────────────────────────────────
-_url_cache: dict = {}       # track_url → (media_url, expires_at)
+_url_cache: dict = {}
 URL_TTL = 30 * 60
-
-_search_cache: dict = {}    # query:limit → (tracks, expires_at)
+_search_cache: dict = {}
 SEARCH_TTL = 10 * 60
-
-_resolve_futures: dict = {} # dedup concurrent resolves
-
+_resolve_futures: dict = {}
 _dl_tasks: dict = {}
-
 
 def cache_key(url: str) -> str:
     return hashlib.md5(url.encode()).hexdigest()
-
 
 def find_cached(key: str):
     p = os.path.join(CACHE_DIR, f"{key}.mp3")
     return p if os.path.exists(p) and os.path.getsize(p) > 10240 else None
 
 
-# ── URL resolution (API first, yt-dlp fallback) ─────────────────────────────
 async def resolve_url(url: str) -> str | None:
     cached = _url_cache.get(url)
     if cached and time.time() < cached[1]:
         return cached[0]
-
     if url in _resolve_futures:
         return await asyncio.shield(_resolve_futures[url])
 
     loop = asyncio.get_event_loop()
     fut = loop.create_future()
     _resolve_futures[url] = fut
-
     try:
-        # Try SoundCloud API first (~300ms)
         media_url = await sc_api_resolve(url)
-
-        # Fallback to yt-dlp if API fails
         if not media_url:
             fmt = "http_mp3_0_0/hls_mp3_0_0/bestaudio[ext=mp3]/bestaudio"
             proc = await asyncio.create_subprocess_exec(
@@ -176,55 +162,49 @@ async def resolve_url(url: str) -> str | None:
                     media_url = out.decode(errors="ignore").strip().split("\n")[0]
             except asyncio.TimeoutError:
                 proc.kill()
-
         if media_url:
             _url_cache[url] = (media_url, time.time() + URL_TTL)
             fut.set_result(media_url)
             return media_url
-
         fut.set_result(None)
         return None
-    except Exception as e:
-        try:
-            fut.set_result(None)
-        except Exception:
-            pass
+    except Exception:
+        try: fut.set_result(None)
+        except: pass
         return None
     finally:
         _resolve_futures.pop(url, None)
 
 
 async def _bg_resolve(url: str):
-    try:
-        await resolve_url(url)
-    except Exception:
-        pass
+    try: await resolve_url(url)
+    except: pass
 
 
-# ── HLS helper ───────────────────────────────────────────────────────────────
 async def get_hls_segments(hls_url: str) -> list:
     async with aiohttp.ClientSession() as s:
         async with s.get(hls_url) as r:
             text = await r.text()
-    return [line.strip() for line in text.splitlines()
-            if line.strip() and not line.startswith("#")]
+    return [l.strip() for l in text.splitlines() if l.strip() and not l.startswith("#")]
 
 
-# ── Artist pools for catalog ─────────────────────────────────────────────────
+# ── Artist pools ─────────────────────────────────────────────────────────────
 POOLS = {
     "new": [
         'Drake', 'The Weeknd', 'SZA', 'Dua Lipa', 'Bad Bunny', 'Billie Eilish',
-        'Olivia Rodrigo', 'Harry Styles', 'Ariana Grande', 'Post Malone',
-        'Doja Cat', 'Travis Scott', 'Rihanna', 'Bruno Mars', 'Sabrina Carpenter',
-        'Tyla', 'Rema', 'Charli XCX', 'NewJeans', 'Tems',
-        'BTS', 'BLACKPINK', 'Rosalía', 'Karol G', 'Anitta',
+        'Olivia Rodrigo', 'Ariana Grande', 'Post Malone', 'Doja Cat',
+        'Travis Scott', 'Bruno Mars', 'Sabrina Carpenter', 'Tyla', 'Rema',
+        'Charli XCX', 'Tems', 'Rosalía', 'Karol G', 'Anitta',
+        'Frank Ocean', 'Steve Lacy', 'Brent Faiyaz', 'Daniel Caesar', 'Kali Uchis',
+        'Lana Del Rey', 'Hozier', 'Troye Sivan', 'Raye', 'Chappell Roan',
     ],
     "trending": [
         'Kendrick Lamar', 'Playboi Carti', 'Future', 'Metro Boomin', 'Kanye West',
-        'Don Toliver', '21 Savage', 'Lil Baby', 'Tyler the Creator', 'J. Cole',
-        'A$AP Rocky', 'Central Cee', 'Ice Spice', 'Gunna', 'Jack Harlow',
-        'Baby Keem', 'Stormzy', 'Dave', 'PinkPantheress', 'Fred again',
-        'Skrillex', 'Flume', 'Disclosure', 'Kaytranada', 'Peggy Gou',
+        'Don Toliver', '21 Savage', 'Tyler the Creator', 'J. Cole', 'A$AP Rocky',
+        'Central Cee', 'Ice Spice', 'Baby Keem', 'Gunna', 'Lil Baby',
+        'Stormzy', 'Dave', 'PinkPantheress', 'Fred again', 'Skrillex',
+        'Tame Impala', 'Glass Animals', 'Arctic Monkeys', 'Gorillaz', 'The 1975',
+        'Flume', 'Disclosure', 'Kaytranada', 'Peggy Gou', 'Gesaffelstein',
     ],
     "russian": [
         'Скриптонит', 'Miyagi', 'Макс Корж', 'Oxxxymiron', 'Элджей',
@@ -232,6 +212,7 @@ POOLS = {
         'Баста', 'Хаски', 'Noize MC', 'FACE', 'Markul',
         'Jony', 'Rauf Faik', 'MACAN', 'Xcho', 'Три дня дождя',
         'Земфира', 'Molchat Doma', 'IC3PEAK', 'Кино', 'Монеточка',
+        'Слава Марлов', 'Тима Белорусских', 'Мот', 'Andro', 'Ramil',
     ],
     "chill": [
         'Joji', 'nujabes', 'Lofi Girl', 'Khruangbin', 'Mac DeMarco',
@@ -239,37 +220,50 @@ POOLS = {
         'Tom Misch', 'Bonobo', 'Tycho', 'ODESZA', 'Toro y Moi',
         'keshi', 'Still Woozy', 'Cuco', 'beabadoobee', 'Masego',
         'Jordan Rakei', 'BadBadNotGood', 'Nils Frahm', 'Sampha', 'Bon Iver',
+        'Cigarettes After Sex', 'Beach House', 'Phoebe Bridgers', 'Mitski', 'Japanese Breakfast',
     ],
 }
 
-# ── Catalog system ───────────────────────────────────────────────────────────
+# ── Catalog ──────────────────────────────────────────────────────────────────
 _catalog = {"new": [], "trending": [], "russian": [], "chill": [], "ts": 0}
 _catalog_building = False
 
 
 async def _build_section(key: str) -> list:
-    """Build one catalog section: search 2 random artists, interleave results."""
+    """Search 3 random artists, interleave, take top by play count."""
     pool = POOLS.get(key, [])
-    if len(pool) < 2:
+    if len(pool) < 3:
         return []
-    a1, a2 = random.sample(pool, 2)
-    r1, r2 = await asyncio.gather(
-        sc_api_search(a1, 5),
-        sc_api_search(a2, 5),
-    )
-    # Interleave and dedupe
+    artists = random.sample(pool, 3)
+    results = await asyncio.gather(*[sc_api_search(a, 5) for a in artists])
+    # Round-robin interleave all results
     mixed = []
     seen = set()
-    for i in range(max(len(r1), len(r2))):
-        for lst in (r1, r2):
-            if i < len(lst) and lst[i]["id"] not in seen:
-                seen.add(lst[i]["id"])
-                mixed.append(lst[i])
-    return mixed
+    max_len = max((len(r) for r in results), default=0)
+    for i in range(max_len):
+        for r in results:
+            if i < len(r) and r[i]["id"] not in seen:
+                seen.add(r[i]["id"])
+                mixed.append(r[i])
+    return mixed[:15]  # max 15 per section
+
+
+async def _resolve_catalog_tracks(tracks: list):
+    """Resolve all track URLs and add media_url to each track."""
+    async def _resolve_one(t):
+        url = t.get("url")
+        if not url:
+            return
+        media = await resolve_url(url)
+        if media:
+            t["media_url"] = media
+    # Resolve up to 5 at a time to not overwhelm
+    for i in range(0, len(tracks), 5):
+        batch = tracks[i:i+5]
+        await asyncio.gather(*[_resolve_one(t) for t in batch])
 
 
 async def build_catalog():
-    """Build full catalog — all 4 sections. ~1-2s total with API."""
     global _catalog, _catalog_building
     if _catalog_building:
         return
@@ -280,22 +274,24 @@ async def build_catalog():
                 tracks = await _build_section(key)
                 if tracks:
                     _catalog[key] = tracks
-                    # Pre-resolve all track URLs in background
-                    for t in tracks:
-                        url = t.get("url")
-                        if url and url not in _url_cache and url not in _resolve_futures:
-                            asyncio.create_task(_bg_resolve(url))
             except Exception as e:
                 print(f"[Catalog] {key} failed: {e}")
         _catalog["ts"] = time.time()
-        print(f"[Catalog] Built: {sum(len(_catalog[k]) for k in POOLS)} tracks")
+        total = sum(len(_catalog[k]) for k in POOLS)
+        print(f"[Catalog] Built: {total} tracks, resolving URLs...")
+
+        # Pre-resolve all track URLs (adds media_url for direct CDN playback)
+        all_tracks = []
+        for k in POOLS:
+            all_tracks.extend(_catalog[k])
+        await _resolve_catalog_tracks(all_tracks)
+        resolved = sum(1 for t in all_tracks if t.get("media_url"))
+        print(f"[Catalog] Resolved: {resolved}/{len(all_tracks)} tracks ready for instant playback")
     finally:
         _catalog_building = False
 
 
 async def catalog_refresh_loop():
-    """Refresh catalog every 5 minutes."""
-    # Initial build
     await build_catalog()
     while True:
         await asyncio.sleep(5 * 60)
@@ -304,7 +300,6 @@ async def catalog_refresh_loop():
 
 @app.on_event("startup")
 async def on_startup():
-    # Extract client_id and build catalog immediately
     asyncio.create_task(catalog_refresh_loop())
 
 
@@ -317,7 +312,6 @@ async def health():
 
 @app.get("/catalog")
 async def get_catalog():
-    """Return pre-built catalog — instant response."""
     return _catalog
 
 
@@ -327,39 +321,31 @@ async def search(q: str, limit: int = 10):
     cached = _search_cache.get(cache_k)
     if cached and time.time() < cached[1]:
         return {"tracks": cached[0]}
-
-    # Try SoundCloud API first
     tracks = await sc_api_search(q, limit)
-
-    # Fallback to yt-dlp if API returns nothing
     if not tracks:
         try:
             proc = await asyncio.create_subprocess_exec(
                 YT_DLP, f"scsearch{limit}:{q}",
                 "--dump-json", "--flat-playlist", "--no-warnings", "--quiet",
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-            out, err = await asyncio.wait_for(proc.communicate(), timeout=45)
+            out, _ = await asyncio.wait_for(proc.communicate(), timeout=45)
             if proc.returncode == 0 and out.strip():
                 tracks = _parse_ytdlp_tracks(out.decode(errors="ignore"))
         except Exception:
             pass
-
     if tracks:
         _search_cache[cache_k] = (tracks, time.time() + SEARCH_TTL)
-        # Auto-resolve URLs in background
         for t in tracks:
-            url = t.get("url")
-            if url and url not in _url_cache and url not in _resolve_futures:
-                asyncio.create_task(_bg_resolve(url))
-
+            u = t.get("url")
+            if u and u not in _url_cache and u not in _resolve_futures:
+                asyncio.create_task(_bg_resolve(u))
     return {"tracks": tracks}
 
 
 def _parse_ytdlp_tracks(out: str) -> list:
     tracks = []
     for line in out.strip().split("\n"):
-        if not line.strip():
-            continue
+        if not line.strip(): continue
         try:
             d = json.loads(line)
             artwork = None
@@ -368,8 +354,7 @@ def _parse_ytdlp_tracks(out: str) -> list:
                     artwork = t["url"]; break
             if not artwork:
                 thumbs = d.get("thumbnails") or []
-                if thumbs:
-                    artwork = thumbs[-1].get("url")
+                if thumbs: artwork = thumbs[-1].get("url")
             tracks.append({
                 "id": str(d.get("id", "")),
                 "title": d.get("title", "Unknown"),
@@ -378,38 +363,24 @@ def _parse_ytdlp_tracks(out: str) -> list:
                 "artwork_url": artwork,
                 "url": d.get("webpage_url") or d.get("url"),
             })
-        except Exception:
-            continue
+        except Exception: continue
     return tracks
 
 
 @app.get("/resolve")
 async def resolve_endpoint(url: str):
     media_url = await resolve_url(url)
-    return {"ok": bool(media_url)}
-
-
-@app.post("/batch-resolve")
-async def batch_resolve(urls: list[str]):
-    async def _one(u):
-        try:
-            return await resolve_url(u)
-        except Exception:
-            return None
-    results = await asyncio.gather(*[_one(u) for u in urls[:10]])
-    return {"resolved": sum(1 for r in results if r)}
+    return {"ok": bool(media_url), "media_url": media_url}
 
 
 @app.get("/stream")
 async def stream(url: str):
     key = cache_key(url)
-
     cached = find_cached(key)
     if cached:
         return FileResponse(cached, media_type="audio/mpeg",
                             headers={"Accept-Ranges": "bytes",
                                      "Cache-Control": "public, max-age=3600"})
-
     media_url = await resolve_url(url)
     if not media_url:
         raise HTTPException(404, "Cannot get stream URL")
@@ -427,20 +398,16 @@ async def stream(url: str):
                         for seg_url in segs:
                             async with s.get(seg_url) as r:
                                 async for chunk in r.content.iter_chunked(65536):
-                                    f.write(chunk)
-                                    yield chunk
+                                    f.write(chunk); yield chunk
                     else:
                         async with s.get(media_url) as r:
                             async for chunk in r.content.iter_chunked(65536):
-                                f.write(chunk)
-                                yield chunk
+                                f.write(chunk); yield chunk
             if os.path.exists(tmp_path):
                 os.rename(tmp_path, cache_path)
         except Exception:
-            try:
-                os.unlink(tmp_path)
-            except Exception:
-                pass
+            try: os.unlink(tmp_path)
+            except: pass
 
     return StreamingResponse(generate(), media_type="audio/mpeg",
                              headers={"Cache-Control": "no-cache",
@@ -450,41 +417,30 @@ async def stream(url: str):
 @app.get("/preload")
 async def preload(url: str):
     key = cache_key(url)
-    if find_cached(key):
-        return {"status": "cached"}
-
+    if find_cached(key): return {"status": "cached"}
     for k in list(_dl_tasks):
-        if _dl_tasks[k].done():
-            del _dl_tasks[k]
-
-    if key in _dl_tasks:
-        return {"status": "downloading"}
+        if _dl_tasks[k].done(): del _dl_tasks[k]
+    if key in _dl_tasks: return {"status": "downloading"}
 
     async def _dl():
         media_url = await resolve_url(url)
-        if not media_url:
-            return
-        cache_path = os.path.join(CACHE_DIR, f"{key}.mp3")
-        tmp_path = cache_path + ".part"
+        if not media_url: return
+        p = os.path.join(CACHE_DIR, f"{key}.mp3")
+        tmp = p + ".part"
         is_hls = ".m3u8" in media_url or "/m3u8" in media_url
         try:
             async with aiohttp.ClientSession() as s:
-                with open(tmp_path, "wb") as f:
+                with open(tmp, "wb") as f:
                     if is_hls:
-                        segs = await get_hls_segments(media_url)
-                        for seg_url in segs:
-                            async with s.get(seg_url) as r:
-                                f.write(await r.read())
+                        for su in await get_hls_segments(media_url):
+                            async with s.get(su) as r: f.write(await r.read())
                     else:
                         async with s.get(media_url) as r:
-                            async for chunk in r.content.iter_chunked(65536):
-                                f.write(chunk)
-            os.rename(tmp_path, cache_path)
-        except Exception:
-            try:
-                os.unlink(tmp_path)
-            except Exception:
-                pass
+                            async for c in r.content.iter_chunked(65536): f.write(c)
+            os.rename(tmp, p)
+        except:
+            try: os.unlink(tmp)
+            except: pass
 
     _dl_tasks[key] = asyncio.create_task(_dl())
     return {"status": "started"}

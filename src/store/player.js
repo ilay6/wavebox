@@ -19,34 +19,30 @@ function unlockAudio() {
   } catch {}
 }
 
-// Build stream URL — server handles caching, no need for client-side URL cache
-function getStreamUrl(trackUrl) {
-  return `${SERVER}/stream?url=${encodeURIComponent(trackUrl)}`;
+// Get playback URL: direct CDN if available, server proxy as fallback
+function getPlayUrl(track) {
+  // If server pre-resolved a direct CDN URL, use it (instant playback!)
+  if (track.media_url) return track.media_url;
+  // Fallback: stream through server proxy
+  return `${SERVER}/stream?url=${encodeURIComponent(track.url)}`;
 }
 
-// Warm up server URL cache — ~1.5s, eliminates yt-dlp wait on playback
+// Resolve track URL on server (warms cache for later playback)
 function resolveTrack(track) {
   if (!track?.url) return;
-  fetch(`${SERVER}/resolve?url=${encodeURIComponent(track.url)}`).catch(() => {});
+  fetch(`${SERVER}/resolve?url=${encodeURIComponent(track.url)}`)
+    .then(r => r.json())
+    .then(d => { if (d.media_url) track.media_url = d.media_url; })
+    .catch(() => {});
 }
 
-// Tell server to fully download and cache a track in background
-function preloadTrack(track) {
-  if (!track?.url) return;
-  fetch(`${SERVER}/preload?url=${encodeURIComponent(track.url)}`).catch(() => {});
-}
-
-// Server auto-resolves tracks after search, but also resolve from client
-// as backup — staggered to not overload server
+// Prefetch tracks — resolve URLs so they're ready when user clicks play
 export function prefetchTracks(tracks) {
   if (Platform.OS !== 'web' || !tracks?.length) return;
-  // Resolve each track URL with stagger (server might already be doing this)
   tracks.forEach((t, i) => {
-    setTimeout(() => resolveTrack(t), i * 300);
-  });
-  // Fully preload first 5 tracks
-  tracks.slice(0, 5).forEach((t, i) => {
-    setTimeout(() => preloadTrack(t), 1000 + i * 800);
+    // Skip tracks that already have a CDN URL
+    if (t.media_url) return;
+    setTimeout(() => resolveTrack(t), i * 200);
   });
 }
 
@@ -282,7 +278,7 @@ export function PlayerProvider({ children }) {
     setDuration(status.durationMillis / 1000 || 0);
     if (status.isPlaying !== undefined) setIsPlaying(status.isPlaying);
 
-    // Preload next tracks when 20s remaining
+    // Resolve next tracks when 20s remaining
     if (status.durationMillis > 0) {
       const remaining = (status.durationMillis - status.positionMillis) / 1000;
       if (remaining > 0 && remaining < 20) {
@@ -294,9 +290,9 @@ export function PlayerProvider({ children }) {
             const next = q[idx + 1];
             if (next && next.id !== preloadedIdRef.current) {
               preloadedIdRef.current = next.id;
-              preloadTrack(next);
+              if (!next.media_url) resolveTrack(next);
               const next2 = q[idx + 2];
-              if (next2) resolveTrack(next2);
+              if (next2 && !next2.media_url) resolveTrack(next2);
             }
           }
         }
@@ -336,30 +332,27 @@ export function PlayerProvider({ children }) {
       unlockAudio();
 
       const engine = getEngine();
-      const streamUri = getStreamUrl(track.url);
+      const playUrl = getPlayUrl(track);
 
       if (Platform.OS === 'web') {
         engine.onStatus = handleStatus;
         engine.onError = (msg) => { setError(msg); setLoading(false); };
-        engine.load(streamUri);
-        await engine.play(); // waits for canplay — handles slow server
+        engine.load(playUrl);
+        await engine.play();
         setIsPlaying(true);
       } else {
-        await engine.load(streamUri, handleStatus);
+        await engine.load(playUrl, handleStatus);
         setIsPlaying(true);
       }
 
       setLoading(false);
 
-      // Preload next 3 tracks immediately — so switching is instant
+      // Resolve next tracks so they're ready for instant playback
       const idx = q.findIndex(t => t.id === track.id);
       if (idx >= 0) {
         for (let i = 1; i <= 3; i++) {
           const next = q[idx + i];
-          if (next) {
-            if (i <= 2) preloadTrack(next);  // fully download next 2
-            else resolveTrack(next);          // just resolve URL for 3rd
-          }
+          if (next && !next.media_url) resolveTrack(next);
         }
       }
     } catch (e) {
