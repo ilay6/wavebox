@@ -7,12 +7,22 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 
 const isWeb = Platform.OS === 'web';
+const isMobile = !isWeb;
+
+// Use smaller images on mobile to save memory/bandwidth
+function artUrl(url) {
+  if (!url) return url;
+  if (isMobile) return url.replace('-t500x500', '-t200x200');
+  return url;
+}
 
 // Native HTML <img> for web — RN Web's Image uses div+background-image which can fail
 function WebImg({ src, width, height, borderRadius, style: extra }) {
-  if (!isWeb) return <Image source={{ uri: src }} style={{ width, height, borderRadius }} resizeMode="cover" />;
+  const finalSrc = artUrl(src);
+  if (!isWeb) return <Image source={{ uri: finalSrc }} style={{ width, height, borderRadius }} resizeMode="cover" />;
   return React.createElement('img', {
-    src,
+    src: finalSrc,
+    loading: 'lazy',
     style: {
       width, height, borderRadius,
       objectFit: 'cover', display: 'block',
@@ -103,9 +113,10 @@ function HCard({ track, onPress }) {
   );
 }
 
-// ── Animated wave bars (lightweight — uses scaleY + nativeDriver) ─────────────
+// ── Animated wave bars ──────────────────────────────────────────────────────
 function WaveBars() {
-  const bars = useRef(Array.from({ length: 8 }, () => new Animated.Value(0.2 + Math.random() * 0.8))).current;
+  const count = isMobile ? 4 : 8;
+  const bars = useRef(Array.from({ length: count }, () => new Animated.Value(0.2 + Math.random() * 0.8))).current;
   useEffect(() => {
     bars.forEach(a => {
       Animated.loop(Animated.sequence([
@@ -243,7 +254,7 @@ export default function HomeScreen({ navigation }) {
               <Text style={S.sectionTitle}>{title}</Text>
               {loading && !tracks.length ? <HorizontalSkeleton /> : (
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingLeft: 16, paddingRight: 8 }}>
-                  {tracks.map(t => <HCard key={t.id} track={t} onPress={() => playTrack(t, tracks)} />)}
+                  {(isMobile ? tracks.slice(0, 10) : tracks).map(t => <HCard key={t.id} track={t} onPress={() => playTrack(t, tracks)} />)}
                 </ScrollView>
               )}
             </View>

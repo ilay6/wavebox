@@ -4,9 +4,16 @@ import { Ionicons } from '@expo/vector-icons';
 
 const isWeb = Platform.OS === 'web';
 
+function artUrl(url) {
+  if (!url) return url;
+  if (!isWeb) return url.replace('-t500x500', '-t200x200');
+  return url;
+}
+
 function WebImg({ src, width, height, borderRadius }) {
-  if (!isWeb) return <Image source={{ uri: src }} style={{ width, height, borderRadius }} resizeMode="cover" />;
-  return React.createElement('img', { src, style: { width, height, borderRadius, objectFit: 'cover', display: 'block' } });
+  const finalSrc = artUrl(src);
+  if (!isWeb) return <Image source={{ uri: finalSrc }} style={{ width, height, borderRadius }} resizeMode="cover" />;
+  return React.createElement('img', { src: finalSrc, loading: 'lazy', style: { width, height, borderRadius, objectFit: 'cover', display: 'block' } });
 }
 
 import { colors } from '../theme';
