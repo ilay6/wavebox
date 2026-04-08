@@ -28,6 +28,15 @@ import { usePlayer } from '../store/player';
 
 const GENRES = ['All','Hip-Hop','Lo-Fi','Synthwave','Ambient','Indie','Techno','Jazz'];
 
+const SECTIONS = [
+  { key: 'new',        title: 'New Releases' },
+  { key: 'russian',    title: 'Russian Hits' },
+  { key: 'rnb',        title: 'R&B & Soul' },
+  { key: 'chill',      title: 'Chill & Lo-Fi' },
+  { key: 'electronic', title: 'Electronic' },
+  { key: 'indie',      title: 'Indie & Alt' },
+];
+
 // ── Skeleton ──────────────────────────────────────────────────────────────────
 function SkeletonBox({ width: w, height: h, borderRadius = 8, style }) {
   const anim = useRef(new Animated.Value(0.3)).current;
@@ -120,17 +129,11 @@ function WaveBars() {
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 export default function HomeScreen({ navigation }) {
-  const [trending, setTrending]       = useState([]);
-  const [newTracks, setNewTracks]     = useState([]);
-  const [russianTracks, setRussian]   = useState([]);
-  const [chillTracks, setChill]       = useState([]);
+  const [catalog, setCatalog] = useState({});
   const [genreTracks, setGenreTracks] = useState([]);
   const [selectedGenre, setGenre]     = useState('All');
-  const [loadingNew,   setLNew]  = useState(true);
-  const [loadingRu,    setLRu]   = useState(true);
-  const [loadingChill, setLChill]= useState(true);
-  const [loadingTrend, setLTrend]= useState(true);
-  const [greeting, setGreeting]  = useState('');
+  const [loading, setLoading]   = useState(true);
+  const [greeting, setGreeting] = useState('');
 
   const { playTrack, prefetchTracks } = usePlayer();
   const scrollY = useRef(new Animated.Value(0)).current;
@@ -144,16 +147,17 @@ export default function HomeScreen({ navigation }) {
 
   async function loadAll() {
     try {
-      // Single request gets ALL sections (~200ms with SoundCloud API)
       const cat = await getCatalog();
-      if (cat.new?.length)      { setNewTracks(cat.new);      prefetchTracks(cat.new); }
-      if (cat.trending?.length) { setTrending(cat.trending);  setGenreTracks(cat.trending); prefetchTracks(cat.trending); }
-      if (cat.russian?.length)  { setRussian(cat.russian);    prefetchTracks(cat.russian); }
-      if (cat.chill?.length)    { setChill(cat.chill);        prefetchTracks(cat.chill); }
+      setCatalog(cat);
+      if (cat.trending?.length) setGenreTracks(cat.trending);
+      // Prefetch all sections
+      for (const k of ['new','trending','russian','chill','rnb','electronic','indie']) {
+        if (cat[k]?.length) prefetchTracks(cat[k]);
+      }
     } catch(e) {
       console.warn('[Home] catalog failed:', e.message);
     }
-    setLNew(false); setLTrend(false); setLRu(false); setLChill(false);
+    setLoading(false);
   }
 
   async function handleGenre(g) {
@@ -162,8 +166,7 @@ export default function HomeScreen({ navigation }) {
     setGenreTracks(data);
   }
 
-  const loading = loadingNew || loadingRu || loadingChill || loadingTrend;
-  const heroTrack = newTracks[0] || trending[0];
+  const heroTrack = (catalog.new || [])[0] || (catalog.trending || [])[0];
 
   return (
     <View style={S.screen}>
@@ -197,7 +200,7 @@ export default function HomeScreen({ navigation }) {
 
         {/* Hero card */}
         {heroTrack && (
-          <TouchableOpacity style={S.hero} onPress={() => playTrack(heroTrack, newTracks.length ? newTracks : trending)} activeOpacity={0.88}>
+          <TouchableOpacity style={S.hero} onPress={() => playTrack(heroTrack, catalog.new || [])} activeOpacity={0.88}>
             {heroTrack.artwork_url && (
               isWeb
                 ? React.createElement('img', { src: heroTrack.artwork_url, style: { position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover' } })
@@ -232,35 +235,20 @@ export default function HomeScreen({ navigation }) {
           <View style={S.waveBorder} />
         </TouchableOpacity>
 
-        {/* New Releases */}
-        <View style={S.section}>
-          <Text style={S.sectionTitle}>New Releases</Text>
-          {loadingNew ? <HorizontalSkeleton /> : (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingLeft: 16, paddingRight: 8 }}>
-              {newTracks.map(t => <HCard key={t.id} track={t} onPress={() => playTrack(t, newTracks)} />)}
-            </ScrollView>
-          )}
-        </View>
-
-        {/* Russian */}
-        <View style={S.section}>
-          <Text style={S.sectionTitle}>Russian Hits</Text>
-          {loadingRu ? <HorizontalSkeleton /> : (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingLeft: 16, paddingRight: 8 }}>
-              {russianTracks.map(t => <HCard key={t.id} track={t} onPress={() => playTrack(t, russianTracks)} />)}
-            </ScrollView>
-          )}
-        </View>
-
-        {/* Chill */}
-        <View style={S.section}>
-          <Text style={S.sectionTitle}>Chill & Lo-Fi</Text>
-          {loadingChill ? <HorizontalSkeleton /> : (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingLeft: 16, paddingRight: 8 }}>
-              {chillTracks.map(t => <HCard key={t.id} track={t} onPress={() => playTrack(t, chillTracks)} />)}
-            </ScrollView>
-          )}
-        </View>
+        {/* Horizontal sections */}
+        {SECTIONS.map(({ key, title }) => {
+          const tracks = catalog[key] || [];
+          return (
+            <View key={key} style={S.section}>
+              <Text style={S.sectionTitle}>{title}</Text>
+              {loading && !tracks.length ? <HorizontalSkeleton /> : (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingLeft: 16, paddingRight: 8 }}>
+                  {tracks.map(t => <HCard key={t.id} track={t} onPress={() => playTrack(t, tracks)} />)}
+                </ScrollView>
+              )}
+            </View>
+          );
+        })}
 
         {/* Trending + genre filter */}
         <View style={S.section}>
@@ -280,7 +268,7 @@ export default function HomeScreen({ navigation }) {
         </View>
 
         <View style={{ marginTop: 4 }}>
-          {loadingTrend ? <TrackSkeleton /> : genreTracks.map((t, i) => (
+          {loading ? <TrackSkeleton /> : genreTracks.map((t, i) => (
             <TrackCard key={t.id} track={t} index={i} showIndex onPress={() => playTrack(t, genreTracks)} />
           ))}
         </View>

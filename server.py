@@ -188,23 +188,23 @@ async def get_hls_segments(hls_url: str) -> list:
     return [l.strip() for l in text.splitlines() if l.strip() and not l.startswith("#")]
 
 
-# ── Artist pools ─────────────────────────────────────────────────────────────
+# ── Artist pools (7 sections, 30 artists each) ──────────────────────────────
 POOLS = {
     "new": [
         'Drake', 'The Weeknd', 'SZA', 'Dua Lipa', 'Bad Bunny', 'Billie Eilish',
         'Olivia Rodrigo', 'Ariana Grande', 'Post Malone', 'Doja Cat',
         'Travis Scott', 'Bruno Mars', 'Sabrina Carpenter', 'Tyla', 'Rema',
         'Charli XCX', 'Tems', 'Rosalía', 'Karol G', 'Anitta',
-        'Frank Ocean', 'Steve Lacy', 'Brent Faiyaz', 'Daniel Caesar', 'Kali Uchis',
         'Lana Del Rey', 'Hozier', 'Troye Sivan', 'Raye', 'Chappell Roan',
+        'Rihanna', 'Ed Sheeran', 'Justin Bieber', 'Shawn Mendes', 'Taylor Swift',
     ],
     "trending": [
         'Kendrick Lamar', 'Playboi Carti', 'Future', 'Metro Boomin', 'Kanye West',
         'Don Toliver', '21 Savage', 'Tyler the Creator', 'J. Cole', 'A$AP Rocky',
         'Central Cee', 'Ice Spice', 'Baby Keem', 'Gunna', 'Lil Baby',
-        'Stormzy', 'Dave', 'PinkPantheress', 'Fred again', 'Skrillex',
-        'Tame Impala', 'Glass Animals', 'Arctic Monkeys', 'Gorillaz', 'The 1975',
-        'Flume', 'Disclosure', 'Kaytranada', 'Peggy Gou', 'Gesaffelstein',
+        'Stormzy', 'Dave', 'PinkPantheress', 'Jack Harlow', 'Lil Nas X',
+        'Pop Smoke', 'Roddy Ricch', 'Polo G', 'NLE Choppa', 'Juice WRLD',
+        'XXXTentacion', 'Lil Uzi Vert', 'Young Thug', 'Offset', 'Nicki Minaj',
     ],
     "russian": [
         'Скриптонит', 'Miyagi', 'Макс Корж', 'Oxxxymiron', 'Элджей',
@@ -222,21 +222,47 @@ POOLS = {
         'Jordan Rakei', 'BadBadNotGood', 'Nils Frahm', 'Sampha', 'Bon Iver',
         'Cigarettes After Sex', 'Beach House', 'Phoebe Bridgers', 'Mitski', 'Japanese Breakfast',
     ],
+    "rnb": [
+        'Frank Ocean', 'Daniel Caesar', 'Steve Lacy', 'Brent Faiyaz', 'H.E.R.',
+        'Khalid', 'Summer Walker', 'Jhené Aiko', 'Bryson Tiller', 'PartyNextDoor',
+        'Omar Apollo', 'Kali Uchis', 'Kehlani', 'Giveon', 'Ari Lennox',
+        'Victoria Monét', 'Tinashe', 'Anderson .Paak', '6LACK', 'Lucky Daye',
+        'Snoh Aalegra', 'Ravyn Lenae', 'Dominic Fike', 'Ty Dolla Sign', 'dvsn',
+        'Sabrina Claudio', 'Solange', 'Blood Orange', 'James Blake', 'FKA twigs',
+    ],
+    "electronic": [
+        'Skrillex', 'Flume', 'Fred again', 'Disclosure', 'Kaytranada',
+        'Peggy Gou', 'Gesaffelstein', 'Porter Robinson', 'Madeon', 'Deadmau5',
+        'ZHU', 'Rezz', 'RÜFÜS DU SOL', 'Bicep', 'Four Tet',
+        'Jamie xx', 'Caribou', 'Jon Hopkins', 'Aphex Twin', 'Burial',
+        'Fisher', 'Chris Lake', 'John Summit', 'Dom Dolla', 'Illenium',
+        'Kavinsky', 'The Midnight', 'M83', 'Grimes', 'Justice',
+    ],
+    "indie": [
+        'Tame Impala', 'Arctic Monkeys', 'Glass Animals', 'Radiohead', 'The 1975',
+        'Gorillaz', 'Cage the Elephant', 'Foster the People', 'MGMT', 'Hozier',
+        'Alvvays', 'Snail Mail', 'Soccer Mommy', 'Faye Webster', 'TV Girl',
+        'The Neighbourhood', 'Wallows', 'Peach Pit', 'Current Joys', 'Surf Curse',
+        'King Krule', 'Mac DeMarco', 'Alex G', 'Dijon', 'Mk.gee',
+        'Slowdive', 'My Bloody Valentine', 'Cocteau Twins', 'The Cure', 'Joy Division',
+    ],
 }
 
+SECTION_KEYS = list(POOLS.keys())
+
 # ── Catalog ──────────────────────────────────────────────────────────────────
-_catalog = {"new": [], "trending": [], "russian": [], "chill": [], "ts": 0}
+_catalog = {k: [] for k in SECTION_KEYS}
+_catalog["ts"] = 0
 _catalog_building = False
 
 
 async def _build_section(key: str) -> list:
-    """Search 3 random artists, interleave, take top by play count."""
+    """Search 4 random artists, 6 results each, interleave → ~20 unique tracks."""
     pool = POOLS.get(key, [])
-    if len(pool) < 3:
+    if len(pool) < 4:
         return []
-    artists = random.sample(pool, 3)
-    results = await asyncio.gather(*[sc_api_search(a, 5) for a in artists])
-    # Round-robin interleave all results
+    artists = random.sample(pool, 4)
+    results = await asyncio.gather(*[sc_api_search(a, 6) for a in artists])
     mixed = []
     seen = set()
     max_len = max((len(r) for r in results), default=0)
@@ -245,7 +271,7 @@ async def _build_section(key: str) -> list:
             if i < len(r) and r[i]["id"] not in seen:
                 seen.add(r[i]["id"])
                 mixed.append(r[i])
-    return mixed[:15]  # max 15 per section
+    return mixed[:20]  # max 20 per section
 
 
 async def _resolve_catalog_tracks(tracks: list):
@@ -269,7 +295,7 @@ async def build_catalog():
         return
     _catalog_building = True
     try:
-        for key in ["new", "trending", "russian", "chill"]:
+        for key in SECTION_KEYS:
             try:
                 tracks = await _build_section(key)
                 if tracks:
@@ -277,12 +303,12 @@ async def build_catalog():
             except Exception as e:
                 print(f"[Catalog] {key} failed: {e}")
         _catalog["ts"] = time.time()
-        total = sum(len(_catalog[k]) for k in POOLS)
-        print(f"[Catalog] Built: {total} tracks, resolving URLs...")
+        total = sum(len(_catalog[k]) for k in SECTION_KEYS)
+        print(f"[Catalog] Built: {total} tracks across {len(SECTION_KEYS)} sections, resolving URLs...")
 
         # Pre-resolve all track URLs (adds media_url for direct CDN playback)
         all_tracks = []
-        for k in POOLS:
+        for k in SECTION_KEYS:
             all_tracks.extend(_catalog[k])
         await _resolve_catalog_tracks(all_tracks)
         resolved = sum(1 for t in all_tracks if t.get("media_url"))
